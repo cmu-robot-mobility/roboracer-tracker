@@ -1,4 +1,4 @@
-# RoboRacer Race Control
+# RoboRacer Race Tracker
 
 Live qualifying times, bracket and results for the CMU 16-665 RoboRacer race.
 

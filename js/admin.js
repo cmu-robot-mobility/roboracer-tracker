@@ -155,7 +155,7 @@ function header() {
   const u = st.auth?.user, season = seasonLabel(), [k, t] = syncState();
   return `
   <div class="hdr-bar wrap">
-    <div class="brand"><span class="brand-k">RoboRacer · Race control</span><h1>TA Console</h1>${season ? `<span class="hdr-season" title="${esc(season)}">${esc(season)}</span>` : ''}</div>
+    <div class="brand"><span class="brand-k">RoboRacer · Race Tracker</span><h1>TA Console</h1>${season ? `<span class="hdr-season" title="${esc(season)}">${esc(season)}</span>` : ''}</div>
     <div class="hdr-tools">
       ${u && st.auth.isTA ? `<span class="save ${k}" role="status"><span class="save-ico" aria-hidden="true"></span>${esc(t)}</span>` : ''}
       <a class="btn ghost" href="index.html" target="_blank" rel="noopener"><span class="hide-sm">View </span>Public board <span aria-hidden="true">↗</span></a>
@@ -180,7 +180,7 @@ function gate() {
   const a = st.auth, card = (h, b) => `<section class="gate panel">${h}${b}</section>`;
   const pub = '<p class="small"><a href="index.html">Open the public results page →</a></p>';
   if (!a) return card('<h2>Loading…</h2>', '');
-  if (!a.user) return card('<p class="eyebrow">Race control</p><h2>Sign in to enter results</h2>', `<p>This page is for course TAs. Sign in with Google. Only accounts on the TA list can make changes.</p><button type="button" class="btn pri xl" data-act="signin" data-k="signin">Sign in with Google</button>${pub}`);
+  if (!a.user) return card('<p class="eyebrow">Race Tracker</p><h2>Sign in to enter results</h2>', `<p>This page is for course TAs. Sign in with Google. Only accounts on the TA list can make changes.</p><button type="button" class="btn pri xl" data-act="signin" data-k="signin">Sign in with Google</button>${pub}`);
   const out = `<button type="button" class="btn" data-act="signout" data-k="signout2">Sign out</button>`;
   if (!a.isTA && a.canClaim) return card('<p class="eyebrow">First-time setup</p><h2>Set up this race board</h2>', `<p>There are no TAs yet. You'll be added as the first TA using <b>${esc(a.user.email)}</b>. You can add the other TAs in Settings afterwards.</p><div class="row"><button type="button" class="btn pri xl" data-act="claim" data-k="claim">Become the first TA</button>${out}</div>`);
   if (!a.isTA) return card('<h2>Not on the TA list</h2>', `<p><b>${esc(a.user.email)}</b> isn’t on the TA list. Ask a TA to add you under <b>Settings → TA list</b>, then reload this page.</p><div class="row">${out}</div>${pub}`);
@@ -390,7 +390,7 @@ function mcard(S, m) {
   const e = C.entrants(S, m), live = S.bracket.liveId === m.id, nx = C.nextMatch(S)?.id === m.id, ready = e[0] && e[1], ph = phase(m);
   const row = i => `<li class="${m.winner === i ? 'w' : m.winner === 1 - i ? 'l' : ''}"><span class="seed mono">${C.seedOf(S, e[i]) ?? ''}</span><span class="nm">${e[i] ? esc(C.tname(S, e[i])) : `<i class="muted">${esc(C.srcLabel(S, m.src[i]))}</i>`}${m.dq[i] ? ' <span class="pill no">DQ</span>' : ''}</span><span class="mono sc">${m.status !== 'pending' || C.distance(m, i) ? dist(m, i) : ''}</span><span class="wi" aria-label="${m.winner === i ? 'winner' : ''}">${m.winner === i ? '✓' : ''}</span></li>`;
   const pill = live && ph !== 'done' ? (ph === 'running' ? '<span class="pill live">● Running</span>' : '<span class="pill live">On track</span>') : m.status === 'done' ? '<span class="pill ok">✓ Final</span>' : nx ? '<span class="pill wait">Up next</span>' : ready ? '<span class="pill">Ready</span>' : '<span class="pill">Waiting</span>';
-  const btn = live ? `<button type="button" class="btn pri" data-act="tab" data-tab="heat" data-k="open-${m.id}">Open race control</button>`
+  const btn = live ? `<button type="button" class="btn pri" data-act="tab" data-tab="heat" data-k="open-${m.id}">Open race</button>`
     : m.status === 'done' ? `<button type="button" class="btn" data-act="track" data-mid="${m.id}" data-k="track-${m.id}">Review / edit result</button>`
       : ready ? `<button type="button" class="btn${nx ? ' pri' : ''}" data-act="track" data-mid="${m.id}" data-k="track-${m.id}">Put on track</button>` : '<button type="button" class="btn" disabled>Waiting for entrants</button>';
   return `<article class="mc${live ? ' is-live' : ''}${nx ? ' is-next' : ''}${m.status === 'done' ? ' is-done' : ''}" aria-label="${esc(m.label)}"><header><span class="mc-l">${esc(m.label)}</span>${pill}</header><ol class="mc-e">${row(0)}${row(1)}</ol>${btn}</article>`;
