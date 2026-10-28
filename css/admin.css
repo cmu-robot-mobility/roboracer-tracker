@@ -188,14 +188,9 @@ input:disabled{opacity:.55}
 .un-title{color:var(--ink)}
 
 /* ---------- QUALIFYING ---------- */
-.rapid{display:flex;flex-direction:column;gap:10px;border-top:4px solid var(--purple)}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{min-height:var(--tap);padding:8px 14px;border-radius:99px;border:1px solid var(--line);background:var(--chip);color:var(--ink);font:600 15px var(--body);cursor:pointer;touch-action:manipulation}
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-.lapform{display:flex;flex-direction:column;gap:6px}
-.lf-lbl{font-size:14px}
-.lapin{font-size:28px;min-height:60px;font-weight:700;letter-spacing:.02em}
-.rapid-laps{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .lapchip{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:500 15px var(--body);cursor:pointer;touch-action:manipulation}
 span.lapchip{cursor:default;min-height:36px}
 .lapchip small{font:700 10px var(--display);letter-spacing:.1em;color:var(--muted)}

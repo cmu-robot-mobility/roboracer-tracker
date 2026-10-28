@@ -18,7 +18,7 @@ const LAP_LOCK = 600, CLOCK_LOCK = 1000, ARM_MS = 4000;
 const st = {
   auth: null, cfg: undefined, cfgErr: null, sid: null, S: undefined, unS: null,
   tab: TABS.some(t => t[0] === location.hash.slice(1)) ? location.hash.slice(1) : LS.get('rc-admin-tab', null),
-  side: LS.get('rc-admin-side', 'both'), theme: LS.get('rc-admin-theme', 'system'), lapTeam: LS.get('rc-admin-lapteam', null),
+  side: LS.get('rc-admin-side', 'both'), theme: LS.get('rc-admin-theme', 'system'),
   inflight: 0, online: navigator.onLine, confirm: {}, open: new Set(), drafts: {}, msgs: {}, lapWarn: null,
   lock: [0, 0], unlock: [0, 0], clockLock: 0, pend: [0, 0], hold: false, dirty: false, wl: null, wlBusy: false,
 };
@@ -294,7 +294,6 @@ function vQuali() {
   const S = st.S, fast = C.fastestLap(S);
   return [
     ['q-head', `<div class="viewhead"><h2>Qualifying</h2><p class="small muted">${S.teams.length} teams · ${C.seedOrder(S).length} advance · fastest lap <span class="mono purple">${C.fmtTime(fast)}</span></p></div>`],
-    ['q-rapid', S.teams.length ? rapid(S, fast) : ''],
     ['q-list', S.teams.length ? `<div class="tclist">${S.teams.map(t => teamCard(S, t, fast)).join('')}</div>` : '<div class="empty">No teams yet. Add the first team below.</div>'],
     ['q-add', `<section class="panel"><h3>Add team</h3><form class="row nowrap" data-form="addteam" autocomplete="off"><label for="newteam" class="sr">New team name</label><input id="newteam" data-k="newteam" value="${dv('newteam', '')}" placeholder="Team name" maxlength="40" enterkeyhint="done"><button class="btn pri">Add team</button></form>${msg('newteam')}</section>`],
   ];
@@ -307,23 +306,6 @@ function lapList(e, id, fast, counts, removable) {
     return removable ? cbtn({ key: `dl${id}${e.id}${j}`, label: `<span class="mono">${t}</span>${tag}<span class="x" aria-hidden="true">×</span>`, confirm: `Delete ${t}?`, act: 'dellap', cls, attrs: `data-id="${id}" data-eid="${e.id}" data-v="${v}" aria-label="Lap ${t} seconds. Delete"` })
       : `<span class="${cls}"><span class="mono">${t}</span>${tag}</span>`;
   }).join('');
-}
-function rapid(S, fast) {
-  const sel = C.team(S, st.lapTeam) ? st.lapTeam : null, name = sel ? C.tname(S, sel) : '';
-  if (!sel) delete st.msgs.lapin; // selected team was removed
-  const e = sel && C.latestEval(S, sel), last = e?.laps.at(-1), counts = e && C.chosenEval(S, sel) === e;
-  const target = !sel ? 'Pick a team first' : `Lap time in seconds for <b>${esc(name)}</b> · ${e ? `evaluation ${e.n}` : 'starts evaluation 1'}`;
-  return `<section class="panel rapid" aria-labelledby="rapid-h"><h3 id="rapid-h">Quick lap entry</h3>
-    <p class="small muted">Pick a team, type the lap time in seconds (for example 12.345) and press Enter. Laps go into the team's latest evaluation.</p>
-    <div class="chips" role="group" aria-label="Team for lap entry">${S.teams.map(t => `<button type="button" class="chip" aria-pressed="${t.id === sel}" data-act="pickteam" data-id="${t.id}" data-k="pk${t.id}">${t.id === sel ? '<span aria-hidden="true">✓ </span>' : ''}${esc(t.name)}</button>`).join('')}</div>
-    <form class="lapform" data-form="lap" autocomplete="off">
-      <label for="lapin" class="lf-lbl">${target}</label>
-      <div class="row nowrap"><input id="lapin" class="lapin mono" data-k="lapin" value="${dv('lapin', '')}" inputmode="decimal" enterkeyhint="done" placeholder="12.345" ${sel ? '' : 'disabled'} aria-describedby="msg-lapin"><button class="btn pri lg" ${sel ? '' : 'disabled'}>Add lap</button></div>
-    </form>${msg('lapin')}
-    ${sel ? `<div class="rapid-laps">${e ? `<span class="small muted">Evaluation ${e.n}${counts ? ' (counts)' : ''}:</span> ${lapList(e, sel, fast, counts, false)}
-      ${last != null ? `<button type="button" class="btn sm" data-act="undolap" data-id="${sel}" data-eid="${e.id}" data-v="${last}" data-k="undo">Undo last (${C.fmtTime(last)})</button>` : ''}` : ''}
-      ${e ? `<button type="button" class="btn sm" data-act="addeval" data-id="${sel}" data-k="rae">Start evaluation ${C.Q(S, sel).nextEval}</button>` : ''}</div>` : ''}
-  </section>`;
 }
 function stepper(label, val, act, attrs, canDown, canUp, k, sub = '') {
   return `<div class="stepper" role="group" aria-label="${esc(label)}"><span class="flbl">${label}${sub ? `<span class="muted small"> ${sub}</span>` : ''}</span><div class="st-row">
@@ -469,8 +451,6 @@ const ACT = {
     return A.buildBracket(S);
   }).then(ok => ok && toast('Bracket built')),
   clear: () => run(S => { if (C.liveMatch(S)?.timer.start) throw new Error('Pause or finish the race on track first.'); return A.clearBracket(S); }),
-  pickteam: d => { st.lapTeam = d.id; LS.set('rc-admin-lapteam', d.id); delete st.msgs.lapin; st.lapWarn = null; render(); $('#lapin')?.focus(); },
-  undolap: d => delLap(d.id, d.eid, +d.v),
   dellap: d => delLap(d.id, d.eid, +d.v),
   addeval: d => run(S => { mustTeam(S, d.id); return A.addEval(S, d.id); }).then(ok => ok && toast('New evaluation started')),
   pickeval: d => run(S => { mustTeam(S, d.id); return A.pickEval(S, d.id, d.eid); }),
@@ -494,7 +474,7 @@ function delLap(id, eid, v) {
 const clearDrafts = (...ks) => ks.forEach(k => delete st.drafts[k]);
 const FORM = {
   lap(f) {
-    const inp = f.querySelector('input'), k = inp.dataset.k, id = f.dataset.id || st.lapTeam, eid = f.dataset.eid, raw = inp.value;
+    const inp = f.querySelector('input'), k = inp.dataset.k, id = f.dataset.id, eid = f.dataset.eid, raw = inp.value;
     if (!id || !C.team(st.S, id)) return setMsg(k, 'Pick a team first.', 'bad');
     if (!raw.trim()) return;
     const secs = C.parseTime(normTime(raw));
@@ -570,7 +550,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('submit', e => { const f = e.target.closest('[data-form]'); if (!f) return; e.preventDefault(); FORM[f.dataset.form]?.(f); });
 document.addEventListener('change', e => { const el = e.target; if (!el.dataset?.change) return; delete st.drafts[el.dataset.k]; CHANGE[el.dataset.change]?.(el); });
-document.addEventListener('input', e => { const k = e.target.dataset?.k; if (k && e.target.matches('input,textarea')) st.drafts[k] = e.target.value; if (k === 'lapin' || k?.startsWith('li')) { if (st.msgs[k]?.kind !== 'ok') delete st.msgs[k]; } });
+document.addEventListener('input', e => { const k = e.target.dataset?.k; if (k && e.target.matches('input,textarea')) st.drafts[k] = e.target.value; if (k?.startsWith('li')) { if (st.msgs[k]?.kind !== 'ok') delete st.msgs[k]; } });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && Object.keys(st.confirm).length) { st.confirm = {}; render(); }
   if (e.key === 'Enter' && e.target.dataset?.change) { e.preventDefault(); e.target.blur(); }
