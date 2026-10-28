@@ -280,3 +280,13 @@ a.btn{text-decoration:none}
   .demo{padding:8px 10px;gap:6px 10px;font-size:13px}
   .demo .btn.sm{min-height:40px;padding:6px 10px;font-size:13px}
 }
+
+/* evaluations inside a team card */
+.evals{display:grid;gap:10px;margin-bottom:10px}
+.ev{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.ev.counts{border-color:var(--good);background:color-mix(in srgb,var(--good) 6%,var(--surface))}
+.ev-h{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap}
+.ev-h h4{margin:0;font:600 16px var(--display);text-transform:uppercase;letter-spacing:.05em}
+.ev-sum{margin-right:auto;color:var(--muted)}
+.ev-foot{display:flex;justify-content:flex-end}
+.tc-ev{font-weight:400}

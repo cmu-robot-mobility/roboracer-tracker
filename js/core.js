@@ -19,12 +19,34 @@ export const clockTime = t => new Date(t).toLocaleTimeString([], { hour: 'numeri
 export const heatLength = S => S.event?.heat || 300;
 export const team = (S, id) => S.teams.find(t => t.id === id);
 export const tname = (S, id) => id ? (team(S, id)?.name || 'Unknown') : null;
-export function Q(S, id) { return (S.quali[id] ||= { obstacle: 'pending', laps: [], dist: 0, scrapes: 0, crashes: 0 }); }
-export function best(S, id) { const l = Q(S, id).laps; return l.length ? Math.min(...l) : null; }
+/*
+ * Qualifying record per team. Obstacle avoidance is per team; timed laps are grouped into
+ * evaluations (attempts). Each evaluation has its own laps, crash-free distance, scrapes and
+ * crashes. The team chooses one evaluation (a TA records the choice as `pick`) and only that one
+ * counts for best lap, grade and seeding. The first evaluation counts until another is chosen.
+ */
+export function Q(S, id) {
+  const q = (S.quali[id] ||= { obstacle: 'pending', evals: [], pick: null, nextEval: 1 });
+  if (!q.evals) { // older single-run records → one evaluation
+    const had = (q.laps?.length || q.dist || q.scrapes || q.crashes);
+    q.evals = had ? [{ id: 'e1', n: 1, laps: q.laps || [], dist: q.dist || 0, scrapes: q.scrapes || 0, crashes: q.crashes || 0 }] : [];
+    q.pick = had ? 'e1' : null; q.nextEval = had ? 2 : 1;
+    delete q.laps; delete q.dist; delete q.scrapes; delete q.crashes;
+  }
+  return q;
+}
+export const evals = (S, id) => Q(S, id).evals;
+export const evalById = (S, id, eid) => evals(S, id).find(e => e.id === eid) || null;
+/** The evaluation that counts for this team, or null if it has none. */
+export function chosenEval(S, id) { const q = Q(S, id); return evalById(S, id, q.pick) || q.evals[0] || null; }
+export const latestEval = (S, id) => evals(S, id).at(-1) || null;
+export const evalBest = e => e && e.laps.length ? Math.min(...e.laps) : null;
+export function evalGrade(e) { if (!e) return 0; return Math.max(0, Math.min(e.dist, 2) / 2 * 100 - 5 * Math.max(0, e.scrapes - 2) - 10 * e.crashes); }
+export function best(S, id) { return evalBest(chosenEval(S, id)); }
 export function fastestLap(S) { const v = S.teams.map(t => best(S, t.id)).filter(x => x != null); return v.length ? Math.min(...v) : null; }
 // Grade: baseline = consecutive crash-free distance / 2 laps; −5% per scrape beyond two; −10% per crash.
-export function grade(S, id) { const q = Q(S, id); return Math.max(0, Math.min(q.dist, 2) / 2 * 100 - 5 * Math.max(0, q.scrapes - 2) - 10 * q.crashes); }
-// Advances: obstacle avoidance passed, not failed on hardware, and has a timed lap for seeding.
+export function grade(S, id) { return evalGrade(chosenEval(S, id)); }
+// Advances: obstacle avoidance passed, not failed on hardware, and a timed lap in the chosen evaluation.
 export function advances(S, id) { const t = team(S, id); return !!t && t.hw !== false && Q(S, id).obstacle === 'pass' && best(S, id) != null; }
 /** Status for display: 'advances' | 'hw-fail' | 'obstacle-fail' | 'pending' */
 export function qualiStatus(S, id) { const t = team(S, id), q = Q(S, id); return advances(S, id) ? 'advances' : t?.hw === false ? 'hw-fail' : q.obstacle === 'fail' ? 'obstacle-fail' : 'pending'; }
@@ -88,7 +110,7 @@ export function rounds(S) {
 export const liveMatch = S => S.bracket?.liveId ? match(S, S.bracket.liveId) : null;
 export const nextMatch = S => S.bracket?.matches.find(m => m.status === 'pending' && m.id !== S.bracket.liveId && entrants(S, m).every(Boolean)) || null;
 
-/* ---------- heat clock ----------
+/* ---------- race clock ----------
  * All clock math uses nowMs(): the device clock corrected by the offset store.js measures
  * against the web server's clock, so every phone and the projector agree on the countdown. */
 let skewMs = 0;
@@ -106,7 +128,7 @@ export function autoWinner(S, m) {
   if (da !== db) return da > db ? 0 : 1;
   return seedOf(S, a) <= seedOf(S, b) ? 0 : 1;
 }
-/** Most recently finished heat as a sentence, or null. */
+/** Most recently finished race as a sentence, or null. */
 export function lastResult(S) {
   const m = (S.bracket?.matches || []).filter(x => x.status === 'done' && x.winner != null).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0))[0];
   if (!m) return null; const e = entrants(S, m), w = m.winner;
@@ -122,6 +144,12 @@ export function standings(S) {
   return out.filter(Boolean);
 }
 
+function evalFor(S, id, eid) {
+  if (eid) { const e = evalById(S, id, eid); if (!e) throw new Error('That evaluation was removed on another device.'); return e; }
+  if (!latestEval(S, id)) A.addEval(S, id);
+  return latestEval(S, id);
+}
+
 /* ---------- mutations (TA actions) ----------
  * Each takes the state, changes it in place, and returns a feed message (or null).
  * The store runs them inside a transaction, so call them via store.mutate(fn).
@@ -132,18 +160,38 @@ export const A = {
   removeTeam: (S, id) => { const n = tname(S, id); S.teams = S.teams.filter(t => t.id !== id); delete S.quali[id]; return `${n} removed`; },
   setHardware: (S, id, hw) => { team(S, id).hw = hw; return `${tname(S, id)}: hardware ${hw ? 'compliant' : hw === false ? 'not compliant' : 'unchecked'}`; },
   setObstacle: (S, id, v) => { Q(S, id).obstacle = v; return v === 'pass' ? `${tname(S, id)} passes obstacle avoidance` : v === 'fail' ? `${tname(S, id)} fails obstacle avoidance` : null; },
-  setDistance: (S, id, d) => { Q(S, id).dist = Math.min(2, Math.max(0, +d || 0)); return null; },
-  bump: (S, id, field, delta) => { const q = Q(S, id); q[field] = Math.max(0, q[field] + delta); return delta > 0 ? `${tname(S, id)}: ${field === 'scrapes' ? 'scrape' : 'crash'} in qualifying` : null; },
-  addLap: (S, id, secs) => {
-    const prev = best(S, id), field = fastestLap(S); Q(S, id).laps.push(secs);
-    return `${tname(S, id)} laps ${fmtTime(secs)}${field == null || secs < field ? ' — fastest of the session' : prev == null || secs < prev ? ' — personal best' : ''}`;
+  addEval: (S, id) => {
+    const q = Q(S, id), n = q.nextEval++, e = { id: 'e' + n, n, laps: [], dist: 0, scrapes: 0, crashes: 0 };
+    q.evals.push(e); if (!q.pick) q.pick = e.id;
+    return `${tname(S, id)}: evaluation ${n} started`;
   },
-  deleteLap: (S, id, i) => { Q(S, id).laps.splice(i, 1); return null; },
+  removeEval: (S, id, eid) => {
+    const q = Q(S, id), e = evalById(S, id, eid); if (!e) throw new Error('That evaluation was already removed.');
+    q.evals = q.evals.filter(x => x.id !== eid); if (q.pick === eid) q.pick = q.evals[0]?.id || null;
+    return `${tname(S, id)}: evaluation ${e.n} removed`;
+  },
+  pickEval: (S, id, eid) => {
+    const e = evalById(S, id, eid); if (!e) throw new Error('That evaluation was removed.');
+    Q(S, id).pick = eid; const b = evalBest(e);
+    return `${tname(S, id)} is using evaluation ${e.n}${b != null ? ` (best lap ${fmtTime(b)} s)` : ''}`;
+  },
+  /** Laps, distance, scrapes and crashes go to evaluation `eid` (default: the latest, created if none). */
+  setDistance: (S, id, d, eid) => { evalFor(S, id, eid).dist = Math.min(2, Math.max(0, +d || 0)); return null; },
+  bump: (S, id, field, delta, eid) => {
+    const e = evalFor(S, id, eid); e[field] = Math.max(0, e[field] + delta);
+    return delta > 0 ? `${tname(S, id)}: ${field === 'scrapes' ? 'scrape' : 'crash'} in evaluation ${e.n}` : null;
+  },
+  addLap: (S, id, secs, eid) => {
+    const e = evalFor(S, id, eid), counts = chosenEval(S, id) === e, prev = evalBest(e), field = fastestLap(S); e.laps.push(secs);
+    const note = !counts ? '' : field == null || secs < field ? ', fastest so far' : prev == null || secs < prev ? ', team best' : '';
+    return `${tname(S, id)}: ${fmtTime(secs)} s in evaluation ${e.n}${note}`;
+  },
+  deleteLap: (S, id, i, eid) => { evalFor(S, id, eid).laps.splice(i, 1); return null; },
   buildBracket: S => { S.bracket = buildBracket(seedOrder(S)); return S.bracket ? `Bracket set: ${S.bracket.seeds.length} teams seeded from qualifying` : null; },
   clearBracket: S => { S.bracket = null; return 'Bracket cleared'; },
   putOnTrack: (S, mid) => {
     const m = match(S, mid), cur = liveMatch(S);
-    if (cur && cur.id !== mid && cur.timer.start) throw new Error('Pause or finish the heat on track first.');
+    if (cur && cur.id !== mid && cur.timer.start) throw new Error('Pause or finish the race on track first.');
     if (cur && cur.id !== mid && cur.status === 'live' && elapsed(cur) === 0) cur.status = 'pending';
     S.bracket.liveId = mid; if (m.status === 'pending') m.status = 'live';
     const e = entrants(S, m); return `${m.label}: ${tname(S, e[0]) || 'TBD'} vs ${tname(S, e[1]) || 'TBD'} on track`;

@@ -126,8 +126,11 @@ function demoStore() {
         const names = ['Apex Predators', 'Lidar Lizards', 'Team Ackermann', 'Gap Followers', 'Pure Pursuit', 'Slip Angle'];
         const laps = [['11.842', '12.105'], ['12.390'], ['11.507', '11.913', '12.004'], ['13.281'], ['12.776', '12.640'], []];
         names.forEach((n, i) => { A.addTeam(S, n); const t = S.teams[S.teams.length - 1]; t.hw = i === 3 ? false : true;
-          const q = S.quali[t.id]; q.obstacle = i === 5 ? 'pending' : 'pass'; q.dist = i === 4 ? 1.5 : 2; q.scrapes = i % 4; q.crashes = i === 1 ? 1 : 0;
-          laps[i].forEach(l => q.laps.push(parseTime(l))); });
+          S.quali[t.id].obstacle = i === 5 ? 'pending' : 'pass';
+          if (!laps[i].length) return;
+          A.addEval(S, t.id); const e = S.quali[t.id].evals[0]; e.dist = i === 4 ? 1.5 : 2; e.scrapes = i % 4; e.crashes = i === 1 ? 1 : 0;
+          laps[i].forEach(l => e.laps.push(parseTime(l)));
+          if (i === 0) { A.addEval(S, t.id); const e2 = S.quali[t.id].evals[1]; e2.dist = 2; e2.laps.push(11.97, 11.66); } });
         A.buildBracket(S); return 'Sample data loaded';
       });
     },

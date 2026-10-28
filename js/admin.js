@@ -12,7 +12,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
 };
 const vib = p => { try { navigator.vibrate?.(p); } catch { /* unsupported */ } };
-const TABS = [['heat', 'Heat'], ['quali', 'Qualifying'], ['bracket', 'Bracket'], ['feed', 'Feed'], ['settings', 'Settings']];
+const TABS = [['heat', 'Race'], ['quali', 'Qualifying'], ['bracket', 'Bracket'], ['feed', 'Feed'], ['settings', 'Settings']];
 const LAP_LOCK = 600, CLOCK_LOCK = 1000, ARM_MS = 4000;
 
 const st = {
@@ -77,9 +77,9 @@ async function job(p) {
   try { await p; return true; } catch (e) { toast(errText(e), true); return false; } finally { st.inflight--; render(); }
 }
 const run = fn => st.sid ? job(store.mutate(st.sid, fn)) : Promise.resolve(false);
-const mustMatch = (S, mid) => { const m = C.match(S, mid); if (!m) throw new Error('That heat no longer exists (bracket was rebuilt).'); return m; };
+const mustMatch = (S, mid) => { const m = C.match(S, mid); if (!m) throw new Error('That race no longer exists (bracket was rebuilt).'); return m; };
 const mustTeam = (S, id) => { if (!C.team(S, id)) throw new Error('That team was removed on another device.'); };
-const guardTrack = (S, mid) => { const cur = C.liveMatch(S); if (cur && cur.id !== mid && cur.timer.start) throw new Error('Pause or finish the heat on track first.'); };
+const guardTrack = (S, mid) => { const cur = C.liveMatch(S); if (cur && cur.id !== mid && cur.timer.start) throw new Error('Pause or finish the race on track first.'); };
 
 /* ---------------- rendering core ---------------- */
 function swap(el, html) {
@@ -129,7 +129,7 @@ function tick() {
     const w = el.closest('[data-clockwrap]'), up = r <= 0 && m.status !== 'done';
     if (w && w.classList.contains('timeup') !== up) {
       w.classList.toggle('timeup', up);
-      const l = w.querySelector('[data-clocklbl]'); if (l) l.textContent = up ? 'Time! Finish & score below' : l.dataset.clocklbl;
+      const l = w.querySelector('[data-clocklbl]'); if (l) l.textContent = up ? 'Time’s up. Score the race below' : l.dataset.clocklbl;
       if (up && m.timer.start && st.vibedUp !== m.id) { st.vibedUp = m.id; vib([200, 100, 200]); }
     }
   });
@@ -164,27 +164,27 @@ function header() {
 function banner() {
   if (store.mode !== 'demo') return '';
   const has = st.S?.teams?.length;
-  return `<div class="wrap"><div class="demo" role="note"><p><b>Demo mode</b> — data is only stored in this browser.</p><div class="demo-b">
+  return `<div class="wrap"><div class="demo" role="note"><p><b>Demo mode:</b> data is only saved in this browser.</p><div class="demo-b">
     ${has ? cbtn({ key: 'seed', label: 'Load sample data', confirm: 'Adds 6 more teams. Tap again', act: 'seed', cls: 'btn sm' }) : '<button type="button" class="btn sm" data-act="seed" data-k="seed">Load sample data</button>'}
     ${cbtn({ key: 'reset', label: 'Reset', confirm: 'Wipe all demo data?', act: 'reset', cls: 'btn sm danger' })}</div></div></div>`;
 }
 function nav() {
   const t = tab(), lm = st.S && C.liveMatch(st.S), run_ = lm && phase(lm) === 'running';
-  return `<div class="nav-in wrap">${TABS.map(([k, l]) => `<button type="button" class="nav-b" data-act="tab" data-tab="${k}" data-k="nav-${k}" ${k === t ? 'aria-current="page"' : ''}>${svg(k)}<span>${l}</span>${k === 'heat' && run_ ? '<span class="dot live" aria-hidden="true"></span><span class="sr"> (heat running)</span>' : ''}</button>`).join('')}</div>`;
+  return `<div class="nav-in wrap">${TABS.map(([k, l]) => `<button type="button" class="nav-b" data-act="tab" data-tab="${k}" data-k="nav-${k}" ${k === t ? 'aria-current="page"' : ''}>${svg(k)}<span>${l}</span>${k === 'heat' && run_ ? '<span class="dot live" aria-hidden="true"></span><span class="sr"> (race running)</span>' : ''}</button>`).join('')}</div>`;
 }
 
 /* ---------------- gate screens ---------------- */
 function gate() {
   const a = st.auth, card = (h, b) => `<section class="gate panel">${h}${b}</section>`;
-  const pub = '<p class="small"><a href="index.html">Go to the public results board →</a></p>';
-  if (!a) return card('<h2>Connecting…</h2>', '<p class="muted">Loading race control.</p>');
-  if (!a.user) return card('<p class="eyebrow">Race control</p><h2>Sign in to enter results</h2>', `<p>This console is for course TAs. Sign in with your Google account; only emails on the TA list can make changes. Everyone else can follow the race live on the public board.</p><button type="button" class="btn pri xl" data-act="signin" data-k="signin">Sign in with Google</button>${pub}`);
+  const pub = '<p class="small"><a href="index.html">Open the public results page →</a></p>';
+  if (!a) return card('<h2>Loading…</h2>', '');
+  if (!a.user) return card('<p class="eyebrow">Race control</p><h2>Sign in to enter results</h2>', `<p>This page is for course TAs. Sign in with Google. Only accounts on the TA list can make changes.</p><button type="button" class="btn pri xl" data-act="signin" data-k="signin">Sign in with Google</button>${pub}`);
   const out = `<button type="button" class="btn" data-act="signout" data-k="signout2">Sign out</button>`;
-  if (!a.isTA && a.canClaim) return card('<p class="eyebrow">First-time setup</p><h2>Set up this race board</h2>', `<p>No TAs exist on this project yet. Become the first TA as <b>${esc(a.user.email)}</b>. You can add the other TAs afterwards in Settings.</p><div class="row"><button type="button" class="btn pri xl" data-act="claim" data-k="claim">Become the first TA</button>${out}</div>`);
-  if (!a.isTA) return card('<h2>Not on the TA list</h2>', `<p>Your account (<b>${esc(a.user.email)}</b>) isn’t on the TA list. Ask a current TA to add you in <b>Settings → TA list</b>, then reload this page.</p><div class="row">${out}</div>${pub}`);
+  if (!a.isTA && a.canClaim) return card('<p class="eyebrow">First-time setup</p><h2>Set up this race board</h2>', `<p>There are no TAs yet. You'll be added as the first TA using <b>${esc(a.user.email)}</b>. You can add the other TAs in Settings afterwards.</p><div class="row"><button type="button" class="btn pri xl" data-act="claim" data-k="claim">Become the first TA</button>${out}</div>`);
+  if (!a.isTA) return card('<h2>Not on the TA list</h2>', `<p><b>${esc(a.user.email)}</b> isn’t on the TA list. Ask a TA to add you under <b>Settings → TA list</b>, then reload this page.</p><div class="row">${out}</div>${pub}`);
   if (st.cfg === undefined) return card('<h2>Loading…</h2>', '');
   if (st.cfg === null) return card('<h2>Can’t load the race board</h2>', `<p class="muted">${esc(errText(st.cfgErr))}</p>`);
-  if (!st.cfg.current) return card('<p class="eyebrow">First-time setup</p><h2>Create the first season</h2>', `<p>Each year’s race is a season. You can start a new one next year and this one stays archived.</p>${seasonForm('fs', '', 'Create season', false)}`);
+  if (!st.cfg.current) return card('<p class="eyebrow">First-time setup</p><h2>Create the first season</h2>', `<p>Each year’s race is saved as its own season. Next year you can start a new one and this one will still be viewable.</p>${seasonForm('fs', '', 'Create season', false)}`);
   if (st.S === undefined) return card('<h2>Loading season…</h2>', '');
   if (st.S === null) return card('<h2>Season not found</h2>', '<p>The current season document is missing. Pick another season or create one in Settings.</p>');
   return null;
@@ -200,7 +200,7 @@ function seasonForm(p, name, submit, twoStep) {
 /* ---------------- HEAT ---------------- */
 function vHeat() {
   const S = st.S;
-  if (!S.bracket) return [['h0', `<div class="empty big-empty"><h2>No bracket yet</h2><p>Heats run from the bracket. Finish qualifying, then build the bracket.</p><button type="button" class="btn pri" data-act="tab" data-tab="bracket" data-k="go-b">Go to Bracket</button></div>`]];
+  if (!S.bracket) return [['h0', `<div class="empty big-empty"><h2>No bracket yet</h2><p>Build the bracket once qualifying is done.</p><button type="button" class="btn pri" data-act="tab" data-tab="bracket" data-k="go-b">Go to Bracket</button></div>`]];
   const m = C.liveMatch(S);
   if (!m) return [['h0', noLive(S)]];
   const e = C.entrants(S, m);
@@ -218,19 +218,19 @@ function upNext(S, title) {
 function noLive(S) {
   const champ = C.standings(S)[0];
   const ready = S.bracket.matches.filter(m => m.status === 'pending' && C.entrants(S, m).every(Boolean));
-  return `<div class="empty big-empty"><h2>Nothing on track</h2><p>${champ ? `Bracket complete. Champion: <b>${esc(C.tname(S, champ))}</b>.` : 'Choose the next heat to put on track.'}</p></div>
+  return `<div class="empty big-empty"><h2>Nothing on track</h2><p>${champ ? `Bracket complete. Champion: <b>${esc(C.tname(S, champ))}</b>.` : 'Pick the next race to start.'}</p></div>
   ${upNext(S, 'Up next')}
-  ${ready.length > 1 ? `<section class="panel"><h3>Other heats ready</h3><div class="stack">${ready.slice(1).map(m => { const e = C.entrants(S, m); return `<button type="button" class="btn lg left" data-act="track" data-mid="${m.id}" data-k="track-${m.id}"><b>${esc(m.label)}</b>&nbsp;· ${esc(C.tname(S, e[0]))} vs ${esc(C.tname(S, e[1]))}</button>`; }).join('')}</div></section>` : ''}`;
+  ${ready.length > 1 ? `<section class="panel"><h3>Other races ready</h3><div class="stack">${ready.slice(1).map(m => { const e = C.entrants(S, m); return `<button type="button" class="btn lg left" data-act="track" data-mid="${m.id}" data-k="track-${m.id}"><b>${esc(m.label)}</b>&nbsp;· ${esc(C.tname(S, e[0]))} vs ${esc(C.tname(S, e[1]))}</button>`; }).join('')}</div></section>` : ''}`;
 }
 function heatTop(S, m) {
-  return `<div class="heat-top"><div class="ht-l"><p class="eyebrow">${esc(m.round)} · Heat ${esc(m.id)}</p><h2>${esc(m.label)}</h2></div><div class="ht-r">${phasePill(m)}<button type="button" class="btn sm" data-act="tab" data-tab="bracket" data-k="switch">Switch heat</button></div></div>`;
+  return `<div class="heat-top"><div class="ht-l"><p class="eyebrow">${esc(m.round)} · Race ${esc(m.id)}</p><h2>${esc(m.label)}</h2></div><div class="ht-r">${phasePill(m)}<button type="button" class="btn sm" data-act="tab" data-tab="bracket" data-k="switch">Switch race</button></div></div>`;
 }
 function heatClock(S, m, e) {
   const ph = phase(m);
-  if (ph === 'done') return `<section class="clock panel ph-done" aria-label="Heat clock"><div class="clock-read"><div class="clock-lbl">Finished · time raced</div><div class="clock-time mono">${C.fmtClock(C.elapsed(m))}</div></div></section>`;
-  const lbl = { running: 'Remaining', paused: 'Paused · remaining', ready: `Heat length ${C.fmtClock(C.heatLength(S))}` }[ph];
-  const btn = ph === 'running' ? `${svg('pause')}<span>Pause clock</span>` : `${svg('play')}<span>${ph === 'paused' ? 'Resume clock' : 'Start heat'}</span>`;
-  return `<section class="clock panel ph-${ph}" data-clockwrap aria-label="Heat clock">
+  if (ph === 'done') return `<section class="clock panel ph-done" aria-label="Race clock"><div class="clock-read"><div class="clock-lbl">Finished · time raced</div><div class="clock-time mono">${C.fmtClock(C.elapsed(m))}</div></div></section>`;
+  const lbl = { running: 'Remaining', paused: 'Paused · remaining', ready: `Race length ${C.fmtClock(C.heatLength(S))}` }[ph];
+  const btn = ph === 'running' ? `${svg('pause')}<span>Pause clock</span>` : `${svg('play')}<span>${ph === 'paused' ? 'Resume clock' : 'Start race'}</span>`;
+  return `<section class="clock panel ph-${ph}" data-clockwrap aria-label="Race clock">
     <div class="clock-read"><div class="clock-lbl" data-clocklbl="${esc(lbl)}">${esc(lbl)}</div><div class="clock-time mono" data-clock="${m.id}" role="timer" aria-atomic="true">${C.fmtClock(C.remaining(S, m))}</div></div>
     <button type="button" class="clockbtn cb-${ph}" data-act="clock" data-mid="${m.id}" data-running="${ph === 'running' ? 1 : 0}" data-k="clock" ${e[0] && e[1] ? '' : 'disabled'}>${btn}</button>
   </section>`;
@@ -246,7 +246,7 @@ function heatTeams(S, m, e) {
 function teamPanel(S, m, e, i) {
   const name = nm(S, m, e, i), ph = phase(m), done = ph === 'done', seed = C.seedOf(S, e[i]);
   const left = st.lock[i] - Date.now(), locked = left > 0, win = done && m.winner === i;
-  const hint = st.pend[i] ? 'Sending…' : done ? 'Reopen the heat to change laps' : ph === 'ready' ? 'Clock not started' : ph === 'paused' ? 'Clock paused' : '';
+  const hint = st.pend[i] ? 'Sending…' : done ? 'Reopen the race to change laps' : ph === 'ready' ? 'Clock not started' : ph === 'paused' ? 'Clock paused' : '';
   const fk = `frac${m.id}${i}`;
   return `<section class="tp${m.dq[i] ? ' is-dq' : ''}${win ? ' is-win' : ''}${done && !win ? ' is-lose' : ''}" aria-labelledby="tpn${i}">
     <header class="tp-h"><span class="tp-slot" aria-hidden="true">${'AB'[i]}</span><div class="tp-id"><h3 id="tpn${i}" class="tp-name">${esc(name)}</h3><span class="small muted">${seed ? 'Seed ' + seed : ''}</span></div>${win ? '<span class="pill ok">✓ Winner</span>' : ''}</header>
@@ -267,14 +267,14 @@ function teamMini(S, m, e, i) {
 function why(m) { return m.dq[0] !== m.dq[1] ? 'opponent DQ' : m.laps[0] !== m.laps[1] ? 'more laps' : m.frac[0] !== m.frac[1] ? 'partial-lap tiebreak' : 'tie, better seed'; }
 function heatEnd(S, m, e) {
   const nk = 'note' + m.id;
-  const note = `<div class="field"><label for="${nk}">Race note <span class="muted small">(shown publicly)</span></label><input id="${nk}" data-k="${nk}" value="${dv(nk, m.note)}" data-change="note" data-mid="${m.id}" maxlength="160" placeholder="e.g. restart after track invasion" autocomplete="off"></div>`;
-  const reset = cbtn({ key: 'rs' + m.id, label: 'Reset heat', confirm: 'Tap again: wipe laps & clock', act: 'resetheat', cls: 'btn danger', attrs: `data-mid="${m.id}"` });
+  const note = `<div class="field"><label for="${nk}">Race note <span class="muted small">(shown publicly)</span></label><input id="${nk}" data-k="${nk}" value="${dv(nk, m.note)}" data-change="note" data-mid="${m.id}" maxlength="160" placeholder="e.g. restarted after a collision at 2:10" autocomplete="off"></div>`;
+  const reset = cbtn({ key: 'rs' + m.id, label: 'Reset race', confirm: 'Tap again: wipe laps & clock', act: 'resetheat', cls: 'btn danger', attrs: `data-mid="${m.id}"` });
   const ready = e[0] && e[1];
   if (m.status !== 'done') {
     const w = ready ? C.autoWinner(S, m) : 0;
     const proj = ready ? `${C.tname(S, e[w])} wins ${dist(m, w)} – ${dist(m, 1 - w)} (${why(m)})` : '';
     return `<section class="panel end"><h3>Finish</h3>
-      <p class="small">Auto-scored: DQ, then most laps, then partial lap, then better seed.${ready ? ` If finished now: <b>${esc(proj)}</b>` : ''}</p>
+      <p class="small">The winner is decided by DQ, then most laps, then partial lap, then better qualifying seed.${ready ? ` If you finish now: <b>${esc(proj)}</b>` : ''}</p>
       ${cbtn({ key: 'fin' + m.id, label: `${svg('flag')} Finish &amp; score`, confirm: `Confirm: ${esc(proj)}`, act: 'finish', cls: 'btn finbtn', attrs: `data-mid="${m.id}"`, disabled: !ready })}
       ${note}<div class="row end-tools">${reset}</div></section>`;
   }
@@ -283,8 +283,8 @@ function heatEnd(S, m, e) {
     <h2 class="res-w">${svg('flag')} ${esc(C.tname(S, e[w]))} wins</h2>
     <p class="mono res-s">${dist(m, w)} – ${dist(m, o)} laps <span class="muted small">(${w !== auto ? 'TA override' : why(m)})</span></p>
     <div class="row">${cbtn({ key: 'sw' + m.id, label: `Make ${esc(C.tname(S, e[o]))} the winner`, confirm: `Tap again: ${esc(C.tname(S, e[o]))} wins`, act: 'setwinner', attrs: `data-mid="${m.id}" data-i="${o}"` })}
-    ${cbtn({ key: 'ro' + m.id, label: 'Reopen heat', confirm: 'Tap again to reopen', act: 'reopen', attrs: `data-mid="${m.id}"` })}</div>
-    ${note}<div class="row end-tools">${reset}</div></section>${upNext(S, 'Next heat')}`;
+    ${cbtn({ key: 'ro' + m.id, label: 'Reopen race', confirm: 'Tap again to reopen', act: 'reopen', attrs: `data-mid="${m.id}"` })}</div>
+    ${note}<div class="row end-tools">${reset}</div></section>${upNext(S, 'Next race')}`;
 }
 
 /* ---------------- QUALIFYING ---------------- */
@@ -299,28 +299,30 @@ function vQuali() {
     ['q-add', `<section class="panel"><h3>Add team</h3><form class="row nowrap" data-form="addteam" autocomplete="off"><label for="newteam" class="sr">New team name</label><input id="newteam" data-k="newteam" value="${dv('newteam', '')}" placeholder="Team name" maxlength="40" enterkeyhint="done"><button class="btn pri">Add team</button></form>${msg('newteam')}</section>`],
   ];
 }
-function lapList(S, id, fast, removable) {
-  const q = C.Q(S, id), b = C.best(S, id);
-  if (!q.laps.length) return '<span class="muted small">No timed laps yet.</span>';
-  return q.laps.map((v, j) => {
-    const t = C.fmtTime(v), tag = v === b ? `<small>${v === fast ? 'FASTEST' : 'BEST'}</small>` : '', cls = `lapchip${v === b ? ' best' : ''}${v === fast ? ' fast' : ''}`;
-    return removable ? cbtn({ key: `dl${id}${j}`, label: `<span class="mono">${t}</span>${tag}<span class="x" aria-hidden="true">×</span>`, confirm: `Delete ${t}?`, act: 'dellap', cls, attrs: `data-id="${id}" data-v="${v}" aria-label="Lap ${t}${v === b ? ', best' : ''}. Delete"` })
+function lapList(e, id, fast, counts, removable) {
+  const b = C.evalBest(e);
+  if (!e || !e.laps.length) return '<span class="muted small">No laps yet.</span>';
+  return e.laps.map((v, j) => {
+    const t = C.fmtTime(v), top = counts && v === b, tag = top ? `<small>${v === fast ? 'FASTEST' : 'BEST'}</small>` : '', cls = `lapchip${top ? ' best' : ''}${top && v === fast ? ' fast' : ''}`;
+    return removable ? cbtn({ key: `dl${id}${e.id}${j}`, label: `<span class="mono">${t}</span>${tag}<span class="x" aria-hidden="true">×</span>`, confirm: `Delete ${t}?`, act: 'dellap', cls, attrs: `data-id="${id}" data-eid="${e.id}" data-v="${v}" aria-label="Lap ${t} seconds. Delete"` })
       : `<span class="${cls}"><span class="mono">${t}</span>${tag}</span>`;
   }).join('');
 }
 function rapid(S, fast) {
   const sel = C.team(S, st.lapTeam) ? st.lapTeam : null, name = sel ? C.tname(S, sel) : '';
   if (!sel) delete st.msgs.lapin; // selected team was removed
-  const q = sel && C.Q(S, sel), last = q?.laps.at(-1);
-  return `<section class="panel rapid" aria-labelledby="rapid-h"><h3 id="rapid-h">Rapid lap entry</h3>
-    <p class="small muted">Tap a team, type the time, press Enter. Focus stays put for the next lap. On a phone keypad, type 1.02.345 for 1:02.345.</p>
+  const e = sel && C.latestEval(S, sel), last = e?.laps.at(-1), counts = e && C.chosenEval(S, sel) === e;
+  const target = !sel ? 'Pick a team first' : `Lap time in seconds for <b>${esc(name)}</b> · ${e ? `evaluation ${e.n}` : 'starts evaluation 1'}`;
+  return `<section class="panel rapid" aria-labelledby="rapid-h"><h3 id="rapid-h">Quick lap entry</h3>
+    <p class="small muted">Pick a team, type the lap time in seconds (for example 12.345) and press Enter. Laps go into the team's latest evaluation.</p>
     <div class="chips" role="group" aria-label="Team for lap entry">${S.teams.map(t => `<button type="button" class="chip" aria-pressed="${t.id === sel}" data-act="pickteam" data-id="${t.id}" data-k="pk${t.id}">${t.id === sel ? '<span aria-hidden="true">✓ </span>' : ''}${esc(t.name)}</button>`).join('')}</div>
     <form class="lapform" data-form="lap" autocomplete="off">
-      <label for="lapin" class="lf-lbl">${sel ? `Lap time for <b>${esc(name)}</b>` : 'Pick a team first'}</label>
+      <label for="lapin" class="lf-lbl">${target}</label>
       <div class="row nowrap"><input id="lapin" class="lapin mono" data-k="lapin" value="${dv('lapin', '')}" inputmode="decimal" enterkeyhint="done" placeholder="12.345" ${sel ? '' : 'disabled'} aria-describedby="msg-lapin"><button class="btn pri lg" ${sel ? '' : 'disabled'}>Add lap</button></div>
     </form>${msg('lapin')}
-    ${sel ? `<div class="rapid-laps"><span class="small muted">${esc(name)} laps:</span> ${lapList(S, sel, fast, false)}
-      ${last != null ? `<button type="button" class="btn sm" data-act="undolap" data-id="${sel}" data-v="${last}" data-k="undo">Undo last (${C.fmtTime(last)})</button>` : ''}</div>` : ''}
+    ${sel ? `<div class="rapid-laps">${e ? `<span class="small muted">Evaluation ${e.n}${counts ? ' (counts)' : ''}:</span> ${lapList(e, sel, fast, counts, false)}
+      ${last != null ? `<button type="button" class="btn sm" data-act="undolap" data-id="${sel}" data-eid="${e.id}" data-v="${last}" data-k="undo">Undo last (${C.fmtTime(last)})</button>` : ''}` : ''}
+      ${e ? `<button type="button" class="btn sm" data-act="addeval" data-id="${sel}" data-k="rae">Start evaluation ${C.Q(S, sel).nextEval}</button>` : ''}</div>` : ''}
   </section>`;
 }
 function stepper(label, val, act, attrs, canDown, canUp, k, sub = '') {
@@ -329,25 +331,37 @@ function stepper(label, val, act, attrs, canDown, canUp, k, sub = '') {
     <output class="mono st-v">${val}</output>
     <button type="button" class="btn st-b" data-act="${act}" data-d="1" ${attrs} data-k="${k}+" ${canUp ? '' : 'disabled'} aria-label="Increase ${esc(label)}">+</button></div></div>`;
 }
+function evalBlock(S, t, e, ch, fast) {
+  const id = t.id, counts = e === ch, b = C.evalBest(e), g = C.evalGrade(e), scr = Math.max(0, e.scrapes - 2), k = id + e.id, a = `data-id="${id}" data-eid="${e.id}"`;
+  const parts = [`${e.dist / 2 * 100} distance`];
+  if (scr) parts.push(`− ${5 * scr} scrapes`); if (e.crashes) parts.push(`− ${10 * e.crashes} crashes`);
+  return `<section class="ev${counts ? ' counts' : ''}" aria-label="Evaluation ${e.n}${counts ? ', counts' : ''}">
+    <header class="ev-h"><h4>Evaluation ${e.n}</h4><span class="mono small ev-sum">${b != null ? C.fmtTime(b) + ' s' : 'no laps'} · ${Math.round(g)}%</span>
+      ${counts ? '<span class="pill ok">✓ Counts</span>' : `<button type="button" class="btn sm" data-act="pickeval" ${a} data-k="pe${k}">Use this one</button>`}</header>
+    <div class="lapchips">${lapList(e, id, fast, counts, true)}</div>
+    <form class="row nowrap" data-form="lap" ${a} autocomplete="off"><label class="sr" for="li${k}">Lap time in seconds, ${esc(t.name)}, evaluation ${e.n}</label><input id="li${k}" class="mono" data-k="li${k}" value="${dv('li' + k, '')}" inputmode="decimal" enterkeyhint="done" placeholder="seconds, e.g. 12.345" aria-describedby="msg-li${k}"><button class="btn">Add lap</button></form>${msg('li' + k)}
+    <div class="grade-grid">
+      ${stepper('Crash-free laps', `${e.dist.toFixed(2)}<span class="muted">/2</span>`, 'dist', a, e.dist > 0, e.dist < 2, 'ds' + k, 'in a row')}
+      ${stepper('Scrapes', e.scrapes, 'bump', `${a} data-f="scrapes"`, e.scrapes > 0, true, 'sc' + k, '2 free, then −5%')}
+      ${stepper('Crashes', e.crashes, 'bump', `${a} data-f="crashes"`, e.crashes > 0, true, 'cr' + k, '−10% each')}
+    </div>
+    <p class="small grade-line">Grade <b class="mono">${Math.round(g)}%</b> <span class="muted">= ${parts.join(' ')}</span></p>
+    <div class="ev-foot">${cbtn({ key: 're' + k, label: 'Delete evaluation', confirm: `Tap again: delete evaluation ${e.n}`, act: 'rmeval', cls: 'btn sm danger', attrs: a })}</div>
+  </section>`;
+}
 function teamCard(S, t, fast) {
-  const q = C.Q(S, t.id), b = C.best(S, t.id), g = C.grade(S, t.id), order = C.qualiOrder(S), id = t.id;
-  const scr = Math.max(0, q.scrapes - 2), parts = [`${q.dist / 2 * 100} distance`];
-  if (scr) parts.push(`− ${5 * scr} scrapes`); if (q.crashes) parts.push(`− ${10 * q.crashes} crashes`);
+  const q = C.Q(S, t.id), b = C.best(S, t.id), g = C.grade(S, t.id), order = C.qualiOrder(S), id = t.id, ch = C.chosenEval(S, id);
   return `<details class="tc" data-team="${id}" ${st.open.has(id) ? 'open' : ''}>
-    <summary data-k="sum${id}"><span class="tc-pos mono">${b != null ? 'P' + (order.indexOf(id) + 1) : '—'}</span><span class="tc-name">${esc(t.name)}</span>
-      <span class="tc-best mono${b != null && b === fast ? ' purple' : ''}" title="Best lap">${C.fmtTime(b)}</span><span class="tc-grade mono" title="Grade">${Math.round(g)}%</span>${statusPill(C.qualiStatus(S, id))}<span class="tc-chev" aria-hidden="true"></span></summary>
+    <summary data-k="sum${id}"><span class="tc-pos mono">${b != null ? 'P' + (order.indexOf(id) + 1) : '—'}</span><span class="tc-name">${esc(t.name)}${ch ? `<span class="tc-ev small muted"> · eval ${ch.n}</span>` : ''}</span>
+      <span class="tc-best mono${b != null && b === fast ? ' purple' : ''}" title="Best lap (seconds)">${C.fmtTime(b)}</span><span class="tc-grade mono" title="Grade">${Math.round(g)}%</span>${statusPill(C.qualiStatus(S, id))}<span class="tc-chev" aria-hidden="true"></span></summary>
     <div class="tc-body">
       <div class="field"><label for="nm${id}">Team name</label><input id="nm${id}" data-k="nm${id}" value="${dv('nm' + id, t.name)}" data-change="rename" data-id="${id}" maxlength="40" autocomplete="off"></div>
       <div class="field"><span class="flbl">Hardware check</span>${seg('Hardware check for ' + t.name, [['null', 'Unchecked', '•'], ['true', 'Compliant', '✓', 'good'], ['false', 'Not compliant', '✕', 'bad']], String(t.hw ?? null), 'hw', `data-id="${id}"`, 'hw' + id)}</div>
       <div class="field"><span class="flbl">Obstacle avoidance</span>${seg('Obstacle avoidance for ' + t.name, [['pending', 'Pending', '•'], ['pass', 'Pass', '✓', 'good'], ['fail', 'Fail', '✕', 'bad']], q.obstacle, 'obs', `data-id="${id}"`, 'ob' + id)}</div>
-      <div class="grade-grid">
-        ${stepper('Crash-free laps', `${q.dist.toFixed(2)}<span class="muted">/2</span>`, 'dist', `data-id="${id}"`, q.dist > 0, q.dist < 2, 'ds' + id, 'consecutive')}
-        ${stepper('Scrapes', q.scrapes, 'bump', `data-id="${id}" data-f="scrapes"`, q.scrapes > 0, true, 'sc' + id, '2 free, −5% after')}
-        ${stepper('Crashes', q.crashes, 'bump', `data-id="${id}" data-f="crashes"`, q.crashes > 0, true, 'cr' + id, '−10% each')}
-      </div>
-      <p class="small grade-line">Grade <b class="mono">${Math.round(g)}%</b> <span class="muted">= ${parts.join(' ')}</span></p>
-      <div class="field"><span class="flbl">Timed laps <span class="muted small">(tap a time twice to delete)</span></span><div class="lapchips">${lapList(S, id, fast, true)}</div>
-        <form class="row nowrap" data-form="lap" data-id="${id}" autocomplete="off"><label class="sr" for="li${id}">Add lap time for ${esc(t.name)}</label><input id="li${id}" class="mono" data-k="li${id}" value="${dv('li' + id, '')}" inputmode="decimal" enterkeyhint="done" placeholder="12.345" aria-describedby="msg-li${id}"><button class="btn">Add lap</button></form>${msg('li' + id)}</div>
+      <div class="field"><span class="flbl">Timed evaluations <span class="muted small">The team picks one. Its best lap and grade are what count.</span></span>
+        <div class="evals">${q.evals.map(e => evalBlock(S, t, e, ch, fast)).join('') || '<p class="muted small">No evaluations yet. Adding a lap starts evaluation 1.</p>'}</div>
+        <div class="row">${q.evals.length ? '' : `<form class="row nowrap" data-form="lap" data-id="${id}" autocomplete="off"><label class="sr" for="li${id}">First lap time in seconds for ${esc(t.name)}</label><input id="li${id}" class="mono" data-k="li${id}" value="${dv('li' + id, '')}" inputmode="decimal" enterkeyhint="done" placeholder="seconds, e.g. 12.345"><button class="btn">Add lap</button></form>`}
+          <button type="button" class="btn" data-act="addeval" data-id="${id}" data-k="ae${id}">+ New evaluation</button></div>${q.evals.length ? '' : msg('li' + id)}</div>
       <div class="tc-foot">${cbtn({ key: 'rm' + id, label: 'Remove team', confirm: `Tap again: remove ${esc(t.name)}`, act: 'rmteam', cls: 'btn danger', attrs: `data-id="${id}"` })}</div>
     </div></details>`;
 }
@@ -359,16 +373,16 @@ function vBracket() {
   const pendWhy = id => { const t = C.team(S, id), q = C.Q(S, id); return [q.obstacle === 'pending' && 'obstacle pending', C.best(S, id) == null && 'no timed lap'].filter(Boolean).join(', '); };
   const changed = b && JSON.stringify(b.seeds) !== JSON.stringify(seeds);
   const anyRes = b?.matches.some(m => m.status !== 'pending');
-  const seedsHtml = `<section class="panel"><h3>Who advances</h3><p class="small muted">Seeded by best qualifying lap. Needs a pass on obstacle avoidance, compliant (or unchecked) hardware and a timed lap.</p>
+  const seedsHtml = `<section class="panel"><h3>Who advances</h3><p class="small muted">Seeded by best lap in each team's chosen evaluation. A team needs to pass obstacle avoidance, not fail the hardware check, and have a timed lap.</p>
     ${seeds.length ? `<ol class="seedlist">${seeds.map((id, i) => `<li><span class="seed mono">${i + 1}</span><span class="nm">${esc(C.tname(S, id))}</span><span class="mono">${C.fmtTime(C.best(S, id))}</span></li>`).join('')}</ol>` : '<p class="empty">No team qualifies yet.</p>'}
     ${out.length ? `<h3 class="sub">Not advancing</h3><ul class="outlist">${out.map(id => `<li><span class="nm">${esc(C.tname(S, id))}</span>${statusPill(C.qualiStatus(S, id))}<span class="small muted">${esc(reason[C.qualiStatus(S, id)] || pendWhy(id))}</span></li>`).join('')}</ul>` : ''}</section>`;
   const actions = !b
     ? `<section class="panel"><button type="button" class="btn pri xl" data-act="build" data-k="build" ${seeds.length < 2 ? 'disabled' : ''}>Build bracket from qualifying · ${seeds.length} teams</button>${seeds.length < 2 ? '<p class="small muted">At least 2 teams must advance.</p>' : ''}</section>`
     : `<section class="panel"><p class="small">${b.seeds.length} teams seeded · ${b.x}-team bracket${b.x < b.seeds.length ? ` with ${b.seeds.length - b.x} play-in${b.seeds.length - b.x > 1 ? 's' : ''}` : ''}${C.match(S, 'THIRD') ? ' · 3rd place match' : ''}</p>
-      ${changed ? '<p class="warn" role="note"><b>⚠ Qualifying changed since the bracket was built.</b> Rebuild to re-seed. Rebuilding wipes all heat results.</p>' : ''}
-      <div class="row">${cbtn({ key: 'rebuild', label: 'Rebuild from qualifying', confirm: anyRes ? 'Tap again: wipes all heat results' : 'Tap again to rebuild', act: 'build', cls: 'btn' + (changed ? ' pri' : '') })}
-      ${cbtn({ key: 'clear', label: 'Clear bracket', confirm: anyRes ? 'Tap again: deletes all heats' : 'Tap again to clear', act: 'clear', cls: 'btn danger' })}</div></section>`;
-  const parts = [['b-head', '<div class="viewhead"><h2>Bracket</h2><p class="small muted">Tap a heat to put it on track.</p></div>']];
+      ${changed ? '<p class="warn" role="note"><b>⚠ Qualifying changed since the bracket was built.</b> Rebuild to re-seed. Rebuilding wipes all race results.</p>' : ''}
+      <div class="row">${cbtn({ key: 'rebuild', label: 'Rebuild from qualifying', confirm: anyRes ? 'Tap again: wipes all race results' : 'Tap again to rebuild', act: 'build', cls: 'btn' + (changed ? ' pri' : '') })}
+      ${cbtn({ key: 'clear', label: 'Clear bracket', confirm: anyRes ? 'Tap again: deletes all races' : 'Tap again to clear', act: 'clear', cls: 'btn danger' })}</div></section>`;
+  const parts = [['b-head', '<div class="viewhead"><h2>Bracket</h2><p class="small muted">Tap a race to start it.</p></div>']];
   if (b) parts.push(['b-rounds', `<div class="rounds">${C.rounds(S).map(r => `<section class="round"><h3>${esc(r.name)}</h3>${r.matches.map(m => mcard(S, m)).join('')}</section>`).join('')}</div>`]);
   parts.push(['b-act', actions], ['b-seeds', seedsHtml]);
   return parts;
@@ -377,7 +391,7 @@ function mcard(S, m) {
   const e = C.entrants(S, m), live = S.bracket.liveId === m.id, nx = C.nextMatch(S)?.id === m.id, ready = e[0] && e[1], ph = phase(m);
   const row = i => `<li class="${m.winner === i ? 'w' : m.winner === 1 - i ? 'l' : ''}"><span class="seed mono">${C.seedOf(S, e[i]) ?? ''}</span><span class="nm">${e[i] ? esc(C.tname(S, e[i])) : `<i class="muted">${esc(C.srcLabel(S, m.src[i]))}</i>`}${m.dq[i] ? ' <span class="pill no">DQ</span>' : ''}</span><span class="mono sc">${m.status !== 'pending' || C.distance(m, i) ? dist(m, i) : ''}</span><span class="wi" aria-label="${m.winner === i ? 'winner' : ''}">${m.winner === i ? '✓' : ''}</span></li>`;
   const pill = live && ph !== 'done' ? (ph === 'running' ? '<span class="pill live">● Running</span>' : '<span class="pill live">On track</span>') : m.status === 'done' ? '<span class="pill ok">✓ Final</span>' : nx ? '<span class="pill wait">Up next</span>' : ready ? '<span class="pill">Ready</span>' : '<span class="pill">Waiting</span>';
-  const btn = live ? `<button type="button" class="btn pri" data-act="tab" data-tab="heat" data-k="open-${m.id}">Open heat control</button>`
+  const btn = live ? `<button type="button" class="btn pri" data-act="tab" data-tab="heat" data-k="open-${m.id}">Open race control</button>`
     : m.status === 'done' ? `<button type="button" class="btn" data-act="track" data-mid="${m.id}" data-k="track-${m.id}">Review / edit result</button>`
       : ready ? `<button type="button" class="btn${nx ? ' pri' : ''}" data-act="track" data-mid="${m.id}" data-k="track-${m.id}">Put on track</button>` : '<button type="button" class="btn" disabled>Waiting for entrants</button>';
   return `<article class="mc${live ? ' is-live' : ''}${nx ? ' is-next' : ''}${m.status === 'done' ? ' is-done' : ''}" aria-label="${esc(m.label)}"><header><span class="mc-l">${esc(m.label)}</span>${pill}</header><ol class="mc-e">${row(0)}${row(1)}</ol>${btn}</article>`;
@@ -386,7 +400,7 @@ function mcard(S, m) {
 /* ---------------- FEED ---------------- */
 function vFeed() {
   const S = st.S;
-  return [['f-post', `<div class="viewhead"><h2>Feed</h2></div><section class="panel"><h3>Post announcement</h3><form class="row nowrap" data-form="post" autocomplete="off"><label for="postin" class="sr">Announcement</label><input id="postin" data-k="postin" value="${dv('postin', '')}" maxlength="200" placeholder="e.g. 10-minute break, next heat 3:40" enterkeyhint="send"><button class="btn pri">Post</button></form>${msg('postin')}<p class="small muted">Appears instantly in the public feed, alongside automatic updates.</p></section>`],
+  return [['f-post', `<div class="viewhead"><h2>Feed</h2></div><section class="panel"><h3>Post announcement</h3><form class="row nowrap" data-form="post" autocomplete="off"><label for="postin" class="sr">Announcement</label><input id="postin" data-k="postin" value="${dv('postin', '')}" maxlength="200" placeholder="e.g. 10 minute break, next race at 3:40" enterkeyhint="send"><button class="btn pri">Post</button></form>${msg('postin')}<p class="small muted">Shows up in the public feed right away.</p></section>`],
     ['f-log', `<section class="panel"><h3>Recent activity</h3>${S.log?.length ? `<ol class="log">${S.log.slice(0, 60).map(l => `<li><time class="mono small muted" datetime="${new Date(l.t).toISOString()}">${C.clockTime(l.t)}</time><span>${esc(l.m)}</span></li>`).join('')}</ol>` : '<p class="muted">Nothing yet.</p>'}</section>`]];
 }
 
@@ -396,13 +410,13 @@ function vSettings() {
   const eventP = `<form class="panel stack" data-form="event" autocomplete="off"><h3>Event</h3>
     <div class="field"><label for="ev-name">Course name</label><input id="ev-name" data-k="ev-name" value="${dv('ev-name', ev.name)}" maxlength="80"></div>
     <div class="field"><label for="ev-season">Season label</label><input id="ev-season" data-k="ev-season" value="${dv('ev-season', ev.season)}" maxlength="40"></div>
-    <div class="field"><label for="ev-heat">Heat length (minutes)</label><input id="ev-heat" type="number" inputmode="decimal" min="0.5" max="60" step="0.5" data-k="ev-heat" value="${dv('ev-heat', C.heatLength(S) / 60)}"></div>
+    <div class="field"><label for="ev-heat">Race length (minutes)</label><input id="ev-heat" type="number" inputmode="decimal" min="0.5" max="60" step="0.5" data-k="ev-heat" value="${dv('ev-heat', C.heatLength(S) / 60)}"></div>
     <button class="btn pri">Save event settings</button>${msg('ev')}</form>`;
-  const taP = `<section class="panel stack"><h3>TA list</h3><p class="small muted">Everyone on this list can edit everything here. Use the exact Google account email. You can’t remove yourself.</p>
+  const taP = `<section class="panel stack"><h3>TA list</h3><p class="small muted">Everyone on this list can change anything here. Use the email of their Google account. You can’t remove yourself.</p>
     <ul class="list">${admins.map(a => `<li><span class="email">${esc(a)}</span>${a === me ? '<span class="pill">You</span>' : cbtn({ key: 'ra' + a, label: 'Remove', confirm: 'Tap again to remove', act: 'rmadmin', cls: 'btn sm danger', attrs: `data-email="${esc(a)}" aria-label="Remove ${esc(a)}"` })}</li>`).join('') || '<li class="muted">No TAs listed.</li>'}</ul>
     <form class="row nowrap" data-form="addadmin" autocomplete="off"><label for="newadmin" class="sr">TA email to add</label><input id="newadmin" type="email" data-k="newadmin" value="${dv('newadmin', '')}" placeholder="name@andrew.cmu.edu" autocapitalize="off" spellcheck="false"><button class="btn">Add TA</button></form>${msg('newadmin')}</section>`;
   const seasons = st.cfg.seasons || [];
-  const seaP = `<section class="panel stack"><h3>Seasons</h3><p class="small">Each year’s race is its own season. Starting a new season gives a blank board (no teams, no bracket) and makes it the one the public board shows. <b>Old seasons are never deleted</b>: they stay archived and viewable, and you can switch back at any time.</p>
+  const seaP = `<section class="panel stack"><h3>Seasons</h3><p class="small">Each year gets its own season. A new season starts with no teams or bracket, and the public page switches to it. Old seasons are kept and can still be viewed. You can switch back at any time.</p>
     <ul class="list">${seasons.map(s => `<li><span>${esc(s.label || s.id)}</span>${s.id === st.cfg.current ? '<span class="pill live">● Current</span>' : cbtn({ key: 'mc' + s.id, label: 'Make current', confirm: 'Tap again: public board switches', act: 'makecurrent', cls: 'btn sm', attrs: `data-id="${esc(s.id)}"` })}</li>`).join('')}</ul>
     <h3 class="sub">Start a new season</h3>${seasonForm('ns', ev.name, 'Start new season', true)}</section>`;
   const dispP = `<section class="panel stack"><h3>Display on this device</h3>${seg('Theme', [['system', 'System', '✓'], ['light', 'Light', '✓'], ['dark', 'Dark', '✓']], st.theme, 'theme')}<p class="small muted">Light is easier to read in sunlight.</p></section>`;
@@ -424,43 +438,46 @@ const ACT = {
     if (now < st.lock[i]) { vib(8); return; } // double-tap guard
     st.lock[i] = now + LAP_LOCK; st.pend[i]++; vib(35);
     setTimeout(render, LAP_LOCK + 20);
-    run(S => { const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('This heat is finished. Reopen it to change laps.'); return A.lap(S, d.mid, i, 1); })
+    run(S => { const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('This race is finished. Reopen it to change laps.'); return A.lap(S, d.mid, i, 1); })
       .finally(() => { st.pend[i]--; render(); });
     render();
   },
   unlap(d) {
     const i = +d.i, now = Date.now(); if (now < st.unlock[i]) return; st.unlock[i] = now + LAP_LOCK; vib(15);
-    run(S => { const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('This heat is finished. Reopen it to change laps.'); return A.lap(S, d.mid, i, -1); });
+    run(S => { const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('This race is finished. Reopen it to change laps.'); return A.lap(S, d.mid, i, -1); });
   },
   clock(d) {
     const now = Date.now(); if (now < st.clockLock) return; st.clockLock = now + CLOCK_LOCK;
     const was = d.running === '1'; vib(was ? 30 : [40, 40, 40]);
     run(S => {
-      const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('This heat is finished.');
+      const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('This race is finished.');
       // Act on what this TA saw, so two TAs tapping Start together can't cancel each other out.
       if (!!m.timer.start !== was) throw new Error(was ? 'The clock was already paused on another device.' : 'The clock was already started on another device.');
       return A.toggleClock(S, d.mid);
     });
   },
   dq: d => run(S => { mustMatch(S, d.mid); return A.setDq(S, d.mid, +d.i, d.on === '1'); }),
-  finish: d => run(S => { const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('Already finished on another device.'); return A.finish(S, d.mid); }).then(ok => ok && (vib([60, 60, 180]), toast('Heat scored'))),
+  finish: d => run(S => { const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('Already finished on another device.'); return A.finish(S, d.mid); }).then(ok => ok && (vib([60, 60, 180]), toast('Race scored'))),
   setwinner: d => run(S => { mustMatch(S, d.mid); return A.setWinner(S, d.mid, +d.i); }),
   reopen: d => run(S => { mustMatch(S, d.mid); guardTrack(S, d.mid); return A.reopen(S, d.mid); }),
   resetheat: d => run(S => { mustMatch(S, d.mid); return A.resetHeat(S, d.mid); }),
   track: d => run(S => { mustMatch(S, d.mid); return A.putOnTrack(S, d.mid); }).then(ok => ok && setTab('heat')),
   build: () => run(S => {
     if (C.seedOrder(S).length < 2) throw new Error('At least 2 teams must advance to build a bracket.');
-    if (C.liveMatch(S)?.timer.start) throw new Error('Pause or finish the heat on track first.');
+    if (C.liveMatch(S)?.timer.start) throw new Error('Pause or finish the race on track first.');
     return A.buildBracket(S);
   }).then(ok => ok && toast('Bracket built')),
-  clear: () => run(S => { if (C.liveMatch(S)?.timer.start) throw new Error('Pause or finish the heat on track first.'); return A.clearBracket(S); }),
+  clear: () => run(S => { if (C.liveMatch(S)?.timer.start) throw new Error('Pause or finish the race on track first.'); return A.clearBracket(S); }),
   pickteam: d => { st.lapTeam = d.id; LS.set('rc-admin-lapteam', d.id); delete st.msgs.lapin; st.lapWarn = null; render(); $('#lapin')?.focus(); },
-  undolap: d => delLap(d.id, +d.v),
-  dellap: d => delLap(d.id, +d.v),
+  undolap: d => delLap(d.id, d.eid, +d.v),
+  dellap: d => delLap(d.id, d.eid, +d.v),
+  addeval: d => run(S => { mustTeam(S, d.id); return A.addEval(S, d.id); }).then(ok => ok && toast('New evaluation started')),
+  pickeval: d => run(S => { mustTeam(S, d.id); return A.pickEval(S, d.id, d.eid); }),
+  rmeval: d => run(S => { mustTeam(S, d.id); return A.removeEval(S, d.id, d.eid); }),
   hw: d => run(S => { mustTeam(S, d.id); return A.setHardware(S, d.id, d.v === 'null' ? null : d.v === 'true'); }),
   obs: d => run(S => { mustTeam(S, d.id); return A.setObstacle(S, d.id, d.v); }),
-  dist: d => run(S => { mustTeam(S, d.id); return A.setDistance(S, d.id, C.Q(S, d.id).dist + 0.25 * d.d); }),
-  bump: d => run(S => { mustTeam(S, d.id); return A.bump(S, d.id, d.f, +d.d); }),
+  dist: d => run(S => { mustTeam(S, d.id); const e = C.evalById(S, d.id, d.eid); if (!e) throw new Error('That evaluation was removed.'); return A.setDistance(S, d.id, e.dist + 0.25 * d.d, d.eid); }),
+  bump: d => run(S => { mustTeam(S, d.id); return A.bump(S, d.id, d.f, +d.d, d.eid); }),
   rmteam: d => run(S => {
     mustTeam(S, d.id);
     if (S.bracket?.seeds.includes(d.id)) throw new Error('This team is seeded in the bracket. Clear or rebuild the bracket first.');
@@ -469,25 +486,25 @@ const ACT = {
   rmadmin: d => job(store.setAdmins((st.auth.admins || []).filter(a => a !== d.email))),
   makecurrent: d => job(store.setCurrentSeason(d.id)).then(ok => ok && toast('Switched season')),
 };
-function delLap(id, v) {
-  return run(S => { mustTeam(S, id); const i = C.Q(S, id).laps.lastIndexOf(v); if (i < 0) throw new Error('That lap was already deleted.'); A.deleteLap(S, id, i); return null; })
+function delLap(id, eid, v) {
+  return run(S => { mustTeam(S, id); const e = C.evalById(S, id, eid), i = e ? e.laps.lastIndexOf(v) : -1; if (i < 0) throw new Error('That lap was already deleted.'); A.deleteLap(S, id, i, eid); return null; })
     .then(ok => ok && toast(`Deleted ${C.fmtTime(v)}`));
 }
 const clearDrafts = (...ks) => ks.forEach(k => delete st.drafts[k]);
 const FORM = {
   lap(f) {
-    const inp = f.querySelector('input'), k = inp.dataset.k, id = f.dataset.id || st.lapTeam, raw = inp.value;
+    const inp = f.querySelector('input'), k = inp.dataset.k, id = f.dataset.id || st.lapTeam, eid = f.dataset.eid, raw = inp.value;
     if (!id || !C.team(st.S, id)) return setMsg(k, 'Pick a team first.', 'bad');
     if (!raw.trim()) return;
     const secs = C.parseTime(normTime(raw));
-    if (secs == null) { vib([40, 30, 40]); return setMsg(k, `Couldn’t read “${raw}”. Type 12.345 or 1:02.345.`, 'bad'); }
+    if (secs == null) { vib([40, 30, 40]); return setMsg(k, `Couldn’t read “${raw}”. Enter the time in seconds, for example 12.345.`, 'bad'); }
     if ((secs < 3 || secs > 300) && !(st.lapWarn?.k === k && st.lapWarn.raw === raw)) {
       st.lapWarn = { k, raw }; vib([40, 30, 40]);
       return setMsg(k, `${C.fmtTime(secs)} looks unusual. Press Enter again to add it anyway.`, 'warn');
     }
     st.lapWarn = null; inp.value = ''; clearDrafts(k);
     let out = '';
-    run(S => { mustTeam(S, id); out = A.addLap(S, id, secs); return out; }).then(ok => {
+    run(S => { mustTeam(S, id); out = A.addLap(S, id, secs, eid); return out; }).then(ok => {
       if (ok) { vib(20); setMsg(k, '✓ ' + out, 'ok'); }
       else { st.drafts[k] = raw; render(); }
     });
@@ -506,7 +523,7 @@ const FORM = {
   },
   event(f) {
     const v = id => f.querySelector('#' + id).value.trim(), min = parseFloat(v('ev-heat'));
-    if (!(min >= 0.5 && min <= 60)) return setMsg('ev', 'Heat length must be between 0.5 and 60 minutes.', 'bad');
+    if (!(min >= 0.5 && min <= 60)) return setMsg('ev', 'Race length must be between 0.5 and 60 minutes.', 'bad');
     const patch = { name: v('ev-name'), season: v('ev-season'), heat: Math.round(min * 60) };
     const sid = st.sid; run(S => A.setEvent(S, patch)).then(ok => { if (ok) { store.relabelSeason(sid, patch.name, patch.season).catch(() => {}); clearDrafts('ev-name', 'ev-season', 'ev-heat'); setMsg('ev', '✓ Saved', 'ok'); } });
   },

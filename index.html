@@ -46,7 +46,7 @@
 
   <section id="v-live" class="view" data-view="live" aria-labelledby="h-live">
     <h2 id="h-live" class="sr-only">Live</h2>
-    <div id="liveHero"><div class="loading" aria-busy="true"><span class="loading-bar" aria-hidden="true"></span>Connecting to race control…</div></div>
+    <div id="liveHero"><div class="loading" aria-busy="true"><span class="loading-bar" aria-hidden="true"></span>Loading results…</div></div>
     <div class="live-grid">
       <section class="block" aria-labelledby="h-top">
         <div class="block-head"><h3 id="h-top">Qualifying</h3><a class="more" href="#quali">Full table</a></div>
@@ -66,11 +66,12 @@
       <summary>How qualifying is graded</summary>
       <div class="rules-body">
         <ul>
-          <li><b>Two consecutive crash-free laps = 100%.</b> Shorter runs scale with distance: 1.5 laps = 75%, 1 lap = 50%.</li>
+          <li><b>Evaluations:</b> a team can do more than one timed evaluation. The team picks one, and only that one counts for best lap, grade and seeding.</li>
+          <li><b>Two crash-free laps in a row = 100%.</b> Fewer laps scale the grade down: 1.5 laps = 75%, 1 lap = 50%.</li>
           <li><b>Scrapes:</b> the first two are free, then −5% each.</li>
           <li><b>Crashes:</b> −10% each.</li>
           <li><b>To advance to the race</b> a car must pass obstacle avoidance (2 consecutive laps) and meet the LiDAR-visibility hardware rule: 12&nbsp;cm of body between 10 and 25&nbsp;cm above the ground.</li>
-          <li><b>Seeding</b> is by best lap time among teams that advance. The fastest lap of the session is shown in <span class="purple">purple</span>.</li>
+          <li><b>Seeding</b> is by best lap time (in seconds) among teams that advance. The fastest lap is shown in <span class="purple">purple</span>.</li>
         </ul>
       </div>
     </details>
@@ -92,7 +93,7 @@
 <footer class="foot">
   <div class="checker" aria-hidden="true"></div>
   <div class="wrap foot-in">
-    <p>CMU 16-665 · F1TENTH · Results update live, no need to refresh.</p>
+    <div class="foot-txt"><p id="footText" class="foot-name">F1TENTH Race</p><p class="foot-note">This page updates by itself. You don't need to refresh.</p></div>
     <div class="foot-links">
       <button id="themeBtn" class="linkish" type="button">Theme: Auto</button>
       <a class="linkish" href="admin.html">TA login</a>

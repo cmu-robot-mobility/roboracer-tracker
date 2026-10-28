@@ -15,14 +15,14 @@ const st = {
   unSeason: null,
 };
 
-let revealed = false; // opened straight on #bracket: scroll to the live heat once data arrives
+let revealed = false; // opened straight on #bracket: scroll to the live race once data arrives
 
 /* ---------- small helpers ---------- */
 const ord = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
 const fmtDist = d => Number.isInteger(d) ? String(d) : d.toFixed(2);
 const nameHTML = (S, id, fallback) => id ? `<span class="team-n">${esc(C.tname(S, id))}</span>` : `<span class="tbd">${esc(fallback || 'TBD')}</span>`;
 const empty = (title, body) => `<div class="empty"><h3>${esc(title)}</h3><p>${esc(body)}</p></div>`;
-const loading = () => `<div class="loading" aria-busy="true"><span class="loading-bar" aria-hidden="true"></span>Connecting to race control…</div>`;
+const loading = () => `<div class="loading" aria-busy="true"><span class="loading-bar" aria-hidden="true"></span>Loading results…</div>`;
 function heatState(m) {
   if (m.status === 'done') return 'final';
   if (m.timer.start) return 'running';
@@ -92,14 +92,14 @@ function heroMatch(S, m) {
       <div class="clock-sub">${w ? `<b>${esc(C.tname(S, w))}</b> wins` : 'Result pending'}</div>
       <div class="clock-sub mono">${fmtDist(ds[0])} – ${fmtDist(ds[1])}</div>`;
   } else {
-    const sub = state === 'running' ? 'Remaining' : state === 'paused' ? 'Clock paused' : 'Awaiting green flag';
+    const sub = state === 'running' ? 'Remaining' : state === 'paused' ? 'Clock paused' : 'Not started';
     center = `<div class="clock ${state === 'running' ? '' : 'paused'}" data-clock role="timer" aria-label="Time remaining">${clockText(rem, state === 'running')}</div>
       <div class="clock-sub" data-clocksub>${sub}</div>
       <div class="progress" aria-hidden="true"><i data-progress style="width:${(100 * (1 - rem / total)).toFixed(2)}%"></i></div>`;
   }
-  return `<article class="board ${state === 'running' ? 'is-running' : ''}" aria-label="Heat on track: ${esc(m.label)}">
+  return `<article class="board ${state === 'running' ? 'is-running' : ''}" aria-label="Race on track: ${esc(m.label)}">
     <div class="board-top">
-      <div class="board-title"><span class="board-kicker">${state === 'final' ? 'Last heat' : 'On track'}</span><span class="board-label">${esc(m.label)}</span></div>
+      <div class="board-title"><span class="board-kicker">${state === 'final' ? 'Last race' : 'On track'}</span><span class="board-label">${esc(m.label)}</span></div>
       <span class="flag ${flag[0]}">${flag[1]}</span>
     </div>
     <div class="heat">
@@ -107,7 +107,7 @@ function heroMatch(S, m) {
       <div class="clockbox">${center}</div>
       ${laneHTML(S, m, 1, e, { state, lead, gap })}
     </div>
-    ${m.note ? `<p class="board-note"><b>Race control:</b> ${esc(m.note)}</p>` : ''}
+    ${m.note ? `<p class="board-note"><b>Note:</b> ${esc(m.note)}</p>` : ''}
     ${state === 'final' ? upNextList(S) : ''}
   </article>`;
 }
@@ -126,11 +126,11 @@ function heroNext(S, m) {
   return `<article class="board next" aria-label="Next heat: ${esc(m.label)}">
     <div class="board-top">
       <div class="board-title"><span class="board-kicker">Next up</span><span class="board-label">${esc(m.label)}</span></div>
-      <span class="flag">Between heats</span>
+      <span class="flag">Up next</span>
     </div>
     <div class="heat">
       ${laneHTML(S, m, 0, e, {})}
-      <div class="clockbox"><div class="clock vs">VS</div><div class="clock-sub">${fmtClock(C.heatLength(S))} heat · most laps wins</div></div>
+      <div class="clockbox"><div class="clock vs">VS</div><div class="clock-sub">${fmtClock(C.heatLength(S))} race · most laps wins</div></div>
       ${laneHTML(S, m, 1, e, {})}
     </div>
     ${upNextList(S, m)}
@@ -143,10 +143,10 @@ function heroQuali(S) {
   const adv = ids.filter(id => C.advances(S, id)), fl = C.fastestLap(S);
   const flId = fl != null ? C.qualiOrder(S)[0] : null;
   const main = !ids.length
-    ? `<div class="big">Waiting for teams</div><p>Teams appear here as they register with race control.</p>`
+    ? `<div class="big">No teams yet</div><p>Teams will show up here once they're added.</p>`
     : fl != null
-      ? `<span class="board-kicker">Fastest lap of the session</span><div class="fl">${fmtTime(fl)}</div><div class="big">${esc(C.tname(S, flId))}</div>`
-      : `<div class="big">Qualifying</div><p>No laps timed yet. Times appear the moment race control records them.</p>`;
+      ? `<span class="board-kicker">Fastest lap so far</span><div class="fl">${fmtTime(fl)}<small> s</small></div><div class="big">${esc(C.tname(S, flId))}</div>`
+      : `<div class="big">Qualifying</div><p>No lap times yet.</p>`;
   return `<article class="board" aria-label="Qualifying session">
     <div class="board-top">
       <div class="board-title"><span class="board-kicker">Session</span><span class="board-label">Qualifying</span></div>
@@ -160,7 +160,7 @@ function heroQuali(S) {
         <div class="stat"><b>${adv.length}</b><span>Advancing</span></div>
       </div>
     </div>
-    <p class="board-note">The head-to-head bracket is seeded from qualifying once the session closes.</p>
+    <p class="board-note">After qualifying, teams that advance are seeded into the bracket by best lap.</p>
   </article>`;
 }
 
@@ -168,7 +168,7 @@ function heroChampion(S, order) {
   return `<article class="board" aria-label="Race complete">
     <div class="board-top">
       <div class="board-title"><span class="board-kicker">Race complete</span><span class="board-label">Champion</span></div>
-      <span class="flag final">Chequered flag</span>
+      <span class="flag final">Finished</span>
     </div>
     <div class="idle-main"><div class="big trophy-name">${esc(C.tname(S, order[0]))}</div>
       <p>${order[1] ? `Runner-up ${esc(C.tname(S, order[1]))}` : ''}${order[2] ? ` · 3rd ${esc(C.tname(S, order[2]))}` : ''}. <a href="#results">Full results</a></p></div>
@@ -176,8 +176,8 @@ function heroChampion(S, order) {
 }
 
 function heroWaiting() {
-  return `<article class="board"><div class="board-top"><div class="board-title"><span class="board-kicker">Head-to-head</span><span class="board-label">Between heats</span></div><span class="flag">Standby</span></div>
-    <div class="idle-main"><p>The next heat will appear here as soon as race control puts it on track.</p></div></article>`;
+  return `<article class="board"><div class="board-top"><div class="board-title"><span class="board-kicker">Head-to-head</span><span class="board-label">Between races</span></div><span class="flag">Waiting</span></div>
+    <div class="idle-main"><p>The next race will show here when it starts.</p></div></article>`;
 }
 
 function renderLive(S) {
@@ -206,7 +206,7 @@ function renderLive(S) {
         const b = C.best(S, id), out = C.qualiStatus(S, id) !== 'advances' && C.qualiStatus(S, id) !== 'pending';
         return `<li class="${out ? 'x' : ''}"><span class="p">${i + 1}</span>${nameHTML(S, id)}<span class="t ${b === fl ? 'purple' : ''}">${fmtTime(b)}</span><span class="g">${i ? '+' + (b - fl).toFixed(3) : 'Fastest'}</span></li>`;
       }).join('')}</ol>`
-    : empty('No laps yet', 'Qualifying times appear here as they are recorded.'));
+    : empty('No lap times yet', 'Qualifying times will show here.'));
 
   const log = S.log || [];
   setHTML($('liveFeed'), log.length
@@ -214,22 +214,22 @@ function renderLive(S) {
         const c = /fastest of the session/.test(l.m) ? 'f-fast' : / beats |result set/.test(l.m) ? 'f-result' : /green flag|on track|resumed/.test(l.m) ? 'f-flag' : /disqualified|crash|fails/.test(l.m) ? 'f-bad' : '';
         return `<li class="${c}"><time class="mono" datetime="${new Date(l.t).toISOString()}">${esc(clockTime(l.t))}</time><span>${esc(l.m)}</span></li>`;
       }).join('')}</ol>`
-    : empty('Quiet on the grid', 'Race updates appear here the moment they happen.'));
+    : empty('No updates yet', 'Race updates will show here.'));
 }
 
 /* ---------- QUALIFYING ---------- */
 function renderQuali(S) {
   const ids = C.qualiOrder(S), fl = C.fastestLap(S);
   const nAdv = ids.filter(id => C.advances(S, id)).length;
-  $('qualiSummary').textContent = ids.length ? `${ids.length} team${ids.length === 1 ? '' : 's'} · ${nAdv} advancing${fl != null ? ' · fastest ' + fmtTime(fl) : ''}` : '';
-  if (!ids.length) { setHTML($('qualiTable'), empty('No teams yet', 'The qualifying table fills in as teams register and run.')); return; }
+  $('qualiSummary').textContent = ids.length ? `${ids.length} team${ids.length === 1 ? '' : 's'} · ${nAdv} advancing${fl != null ? ' · fastest ' + fmtTime(fl) + ' s' : ''}` : '';
+  if (!ids.length) { setHTML($('qualiTable'), empty('No teams yet', 'Teams will be listed here once they\'re added.')); return; }
   let pos = 0;
   const rows = ids.map(id => {
-    const t = C.team(S, id), q = C.Q(S, id), b = C.best(S, id), s = C.qualiStatus(S, id), g = C.grade(S, id);
+    const t = C.team(S, id), q = C.Q(S, id), ev = C.chosenEval(S, id), b = C.best(S, id), s = C.qualiStatus(S, id), g = C.grade(S, id);
     const p = b != null ? ++pos : null, [pc, pl] = STATUS[s];
     const ob = q.obstacle === 'pass' ? '<span class="pill ok">Pass</span>' : q.obstacle === 'fail' ? '<span class="pill no">Fail</span>' : '<span class="pill">Pending</span>';
     const hw = t.hw === true ? '<span class="pill ok">Compliant</span>' : t.hw === false ? '<span class="pill no">Fails</span>' : '<span class="pill">Unchecked</span>';
-    const dist = +(+q.dist || 0).toFixed(2);
+    const dist = +(+(ev?.dist) || 0).toFixed(2), nEv = q.evals.length;
     return `<tr class="${s === 'advances' ? 'adv' : s === 'pending' ? '' : 'out'}">
       <td class="stick pos">${p ?? '—'}</td>
       <th scope="row" class="stick2">${nameHTML(S, id)}</th>
@@ -239,21 +239,22 @@ function renderQuali(S) {
       <td><span class="grade">${Math.round(g)}%<span class="meter ${g >= 100 ? 'full' : ''}" aria-hidden="true"><i style="width:${g}%"></i></span></span></td>
       <td>${ob}</td>
       <td class="num mono">${dist}/2</td>
-      <td class="num mono">${q.scrapes}</td>
-      <td class="num mono">${q.crashes}</td>
+      <td class="num mono">${ev?.scrapes ?? 0}</td>
+      <td class="num mono">${ev?.crashes ?? 0}</td>
       <td>${hw}</td>
-      <td class="num mono">${q.laps.length}</td>
+      <td class="num mono">${ev ? `${ev.n}${nEv > 1 ? `<span class="muted"> of ${nEv}</span>` : ''}` : '—'}</td>
+      <td class="num mono">${ev?.laps.length ?? 0}</td>
     </tr>`;
   }).join('');
   setHTML($('qualiTable'), `
-    <p class="legend"><span><i class="lp"></i>Fastest lap of the session</span><span><i class="la"></i>Advances to the bracket</span></p>
+    <p class="legend"><span><i class="lp"></i>Fastest lap</span><span><i class="la"></i>Advances to the bracket</span></p>
     <div class="tbl"><table class="qt">
       <caption class="sr-only">Qualifying results, fastest best lap first</caption>
       <thead><tr>
         <th scope="col" class="stick pos" title="Position">Pos</th><th scope="col" class="stick2">Team</th>
-        <th scope="col">Best lap</th><th scope="col">Status</th><th scope="col">Gap</th><th scope="col">Grade</th>
-        <th scope="col">Obstacle</th><th scope="col" class="num" title="Consecutive crash-free laps">Consec.</th>
-        <th scope="col" class="num">Scrapes</th><th scope="col" class="num">Crashes</th><th scope="col">Hardware</th><th scope="col" class="num" title="Timed laps">Laps</th>
+        <th scope="col">Best lap (s)</th><th scope="col">Status</th><th scope="col">Gap (s)</th><th scope="col">Grade</th>
+        <th scope="col">Obstacle</th><th scope="col" class="num" title="Crash-free laps in a row">Crash-free</th>
+        <th scope="col" class="num">Scrapes</th><th scope="col" class="num">Crashes</th><th scope="col">Hardware</th><th scope="col" class="num" title="Evaluation the team chose">Eval</th><th scope="col" class="num" title="Timed laps in that evaluation">Laps</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`);
@@ -285,11 +286,11 @@ function renderBracket(S) {
   const el = $('bracket'), sub = $('bracketSub');
   if (!S.bracket) {
     sub.textContent = '';
-    setHTML(el, empty('Bracket not drawn yet', 'Once qualifying closes, teams that advance are seeded by best lap into a single-elimination bracket of 5-minute heats.'));
+    setHTML(el, empty('No bracket yet', `The bracket is made after qualifying. Teams that advance are seeded by best lap, and each race lasts ${Math.round(C.heatLength(S) / 6) / 10} minutes.`));
     return;
   }
   const rs = C.rounds(S), nm = C.nextMatch(S), nextId = nm?.id;
-  sub.textContent = `${S.bracket.seeds.length} teams · ${fmtClock(C.heatLength(S))} heats · most laps wins`;
+  sub.textContent = `${S.bracket.seeds.length} teams · ${fmtClock(C.heatLength(S))} races · most laps wins`;
   const play = rs.find(r => r.name === 'Play-in'), third = rs.find(r => r.name === '3rd place');
   const main = rs.filter(r => r !== play && r !== third);
   const fin = S.bracket.matches.find(m => m.round === 'Final');
@@ -309,7 +310,7 @@ function renderBracket(S) {
     ${tuck ? `<div class="third"><h3>3rd place</h3>${third.matches.map(m => matchCard(S, m, nextId)).join('')}</div>` : ''}</div></div>`);
   // Big brackets tuck the 3rd place match under the champion; small ones give it its own column.
   if (third && !tuck) cols.push(`<div class="bk-col after"><h3>3rd place</h3><div class="bk-body">${third.matches.map(m => matchCard(S, m, nextId)).join('')}</div></div>`);
-  setHTML(el, `<p class="bracket-hint">Swipe sideways to follow the rounds →</p>
+  setHTML(el, `<p class="bracket-hint">Scroll sideways to see every round →</p>
     <div class="bracket-scroll" tabindex="0" role="region" aria-label="Bracket, scrolls horizontally">
       <div class="bk" style="--rows:${rows}">${cols.join('')}</div>
     </div>`);
@@ -344,25 +345,25 @@ function renderResults(S) {
   const pod = $('podium'), tbl = $('resultsTable'), sub = $('resultsSub');
   if (!S.bracket) {
     sub.textContent = '';
-    setHTML(pod, empty('Podium to be decided', 'Places 1–4 earn extra credit (50 / 30 / 20 / 10). The podium fills in as the bracket is raced.'));
+    setHTML(pod, empty('No results yet', 'Places 1 to 4 get extra credit: 50, 30, 20 and 10 points.'));
   } else {
     const order = C.standings(S), n = Math.min(4, S.bracket.seeds.length), hasThird = !!C.match(S, 'THIRD');
-    sub.textContent = order.length ? (order.length >= n ? 'Final classification' : 'Provisional — racing continues') : 'Decided on track';
+    sub.textContent = order.length ? (order.length >= n ? 'Final results' : 'Racing still in progress') : '';
     const where = i => i < 2 ? 'Decided in the Final' : hasThird ? 'Decided in the 3rd place match' : 'Decided in the play-in';
     setHTML(pod, `<div class="podium">${Array.from({ length: n }, (_, i) => {
       const id = order[i];
       return `<div class="pod p${i + 1} ${id ? '' : 'undecided'}">
         <div class="place">${i + 1}<sup>${ord(i + 1).slice(-2)}</sup></div>
-        <div class="who">${id ? `<b>${esc(C.tname(S, id))}</b><span>Seed ${C.seedOf(S, id) ?? '—'}${C.best(S, id) != null ? ' · best lap ' + fmtTime(C.best(S, id)) : ''}</span>` : `<b>To be decided</b><span>${where(i)}</span>`}</div>
+        <div class="who">${id ? `<b>${esc(C.tname(S, id))}</b><span>Seed ${C.seedOf(S, id) ?? '—'}${C.best(S, id) != null ? ' · best lap ' + fmtTime(C.best(S, id)) + ' s' : ''}</span>` : `<b>To be decided</b><span>${where(i)}</span>`}</div>
         <div class="ec"><b>+${C.EXTRA_CREDIT[i]}</b><span>Extra credit</span></div>
       </div>`;
     }).join('')}</div>`);
   }
-  if (!S.teams.length) { setHTML(tbl, empty('No teams yet', 'Every registered team will be listed here.')); return; }
+  if (!S.teams.length) { setHTML(tbl, empty('No teams yet', 'Teams will be listed here once they\'re added.')); return; }
   const fl = C.fastestLap(S);
   setHTML(tbl, `<div class="tbl"><table class="rt">
     <caption class="sr-only">All teams, by finishing position</caption>
-    <thead><tr><th scope="col" class="num">Pos</th><th scope="col">Team</th><th scope="col" class="num">Seed</th><th scope="col">Best lap</th><th scope="col" class="num">Heats W–L</th><th scope="col" class="num">Extra credit</th></tr></thead>
+    <thead><tr><th scope="col" class="num">Pos</th><th scope="col">Team</th><th scope="col" class="num">Seed</th><th scope="col">Best lap (s)</th><th scope="col" class="num">Races W–L</th><th scope="col" class="num">Extra credit</th></tr></thead>
     <tbody>${fates(S).map(r => `<tr class="${r.place ? 'podrow' : ''}">
       <td class="num pl">${r.place ? ord(r.place) : '—'}</td>
       <th scope="row">${nameHTML(S, r.id)}<span class="fate">${esc(r.fate)}</span></th>
@@ -381,16 +382,17 @@ function renderChrome() {
   const offline = st.errs.size > 0 || st.stalled;
   const state = offline ? 'offline' : S === undefined ? 'connecting' : running ? 'live' : onTrack ? 'paused' : 'idle';
   $('status').dataset.state = state;
-  $('statusText').textContent = { offline: 'Offline', connecting: 'Connecting', live: 'Live', paused: 'Heat paused', idle: 'Idle' }[state];
-  if (onTrack && !running) $('statusText').textContent = C.elapsed(lm) > 0 ? 'Heat paused' : 'On track';
+  $('statusText').textContent = { offline: 'Offline', connecting: 'Connecting', live: 'Live', paused: 'Race paused', idle: 'Idle' }[state];
+  if (onTrack && !running) $('statusText').textContent = C.elapsed(lm) > 0 ? 'Race paused' : 'On track';
   document.querySelector('.tabs').toggleAttribute('data-live', running);
   $('updated').textContent = S?.updated ? `Updated ${clockTime(S.updated)}` : '';
   $('evName').textContent = S?.event?.name || 'F1TENTH Race';
   $('evSeason').textContent = S?.event?.season || '';
+  $('footText').textContent = [S?.event?.name || 'F1TENTH Race', S?.event?.season].filter(Boolean).join(' · ');
 
   const b = $('banner');
   b.classList.toggle('on', offline);
-  setHTML(b, offline ? `<div class="wrap banner-in">Can't reach the results server — retrying…${S ? ' Showing the last results received.' : ''}</div>` : '');
+  setHTML(b, offline ? `<div class="wrap banner-in">Connection lost. Trying to reconnect…${S ? ' Showing the last results received.' : ''}</div>` : '');
 
   const cfg = st.cfg, arch = $('archive');
   const label = id => cfg?.seasons?.find(s => s.id === id)?.label || id;
@@ -419,7 +421,7 @@ function render() {
   }
   if (S === null) {
     const none = !st.sid;
-    setHTML($('liveHero'), empty(none ? 'No race yet' : 'Season not found', none ? 'Race control hasn\'t opened a season yet. Check back on race day.' : 'This season isn\'t available. Pick another season above.'));
+    setHTML($('liveHero'), empty(none ? 'No race yet' : 'Season not found', none ? 'Nothing has been posted yet. Check back on race day.' : 'This season isn\'t available. Pick another season above.'));
     ids.forEach(id => setHTML($(id), ''));
     ['qualiSummary', 'bracketSub', 'resultsSub'].forEach(id => $(id).textContent = '');
     return;
@@ -445,7 +447,7 @@ function tick() {
   el.textContent = clockText(rem, running);
   el.classList.toggle('low', running && rem <= 30);
   const sub = document.querySelector('[data-clocksub]');
-  if (sub && running) sub.textContent = rem <= 0 ? 'Time — awaiting result' : 'Remaining';
+  if (sub && running) sub.textContent = rem <= 0 ? 'Time\'s up' : 'Remaining';
   const bar = document.querySelector('[data-progress]');
   if (bar) bar.style.width = (100 * (1 - rem / C.heatLength(S))).toFixed(2) + '%';
 }
@@ -458,7 +460,7 @@ function route() {
   document.querySelectorAll('.view').forEach(s => s.hidden = s.dataset.view !== st.view);
   document.querySelectorAll('.tabs a').forEach(a => a.dataset.tab === st.view ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
 }
-// On narrow screens, bring the heat on track into view when the bracket opens.
+// On narrow screens, bring the race on track into view when the bracket opens.
 function revealLive() {
   const sc = document.querySelector('.bracket-scroll'), card = sc?.querySelector('.bm.is-live') || sc?.querySelector('.bm.is-next');
   if (!sc || !card || sc.scrollWidth <= sc.clientWidth) return;
