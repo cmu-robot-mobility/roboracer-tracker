@@ -219,14 +219,15 @@ function renderLive(S) {
 
 /* ---------- QUALIFYING ---------- */
 function renderQuali(S) {
-  const ids = C.qualiOrder(S), fl = C.fastestLap(S);
+  // Rows in registration order (newest last); Pos is still the rank by best lap.
+  const ids = S.teams.map(t => t.id), fl = C.fastestLap(S);
+  const rank = new Map(C.qualiOrder(S).filter(id => C.best(S, id) != null).map((id, i) => [id, i + 1]));
   const nAdv = ids.filter(id => C.advances(S, id)).length;
   $('qualiSummary').textContent = ids.length ? `${ids.length} team${ids.length === 1 ? '' : 's'} · ${nAdv} advancing${fl != null ? ' · fastest ' + fmtTime(fl) + ' s' : ''}` : '';
   if (!ids.length) { setHTML($('qualiTable'), empty('No teams yet', 'Teams will be listed here once they\'re added.')); return; }
-  let pos = 0;
   const rows = ids.map(id => {
     const t = C.team(S, id), q = C.Q(S, id), ev = C.chosenEval(S, id), b = C.best(S, id), s = C.qualiStatus(S, id), g = C.grade(S, id);
-    const p = b != null ? ++pos : null, [pc, pl] = STATUS[s];
+    const p = rank.get(id) ?? null, [pc, pl] = STATUS[s];
     const ob = q.obstacle === 'pass' ? '<span class="pill ok">Pass</span>' : q.obstacle === 'fail' ? '<span class="pill no">Fail</span>' : '<span class="pill">Pending</span>';
     const hw = t.hw === true ? '<span class="pill ok">Compliant</span>' : t.hw === false ? '<span class="pill no">Fails</span>' : '<span class="pill">Unchecked</span>';
     const dist = +(+(ev?.dist) || 0).toFixed(2), nEv = q.evals.length;
@@ -249,7 +250,7 @@ function renderQuali(S) {
   setHTML($('qualiTable'), `
     <p class="legend"><span><i class="lp"></i>Fastest lap</span><span><i class="la"></i>Advances to the bracket</span></p>
     <div class="tbl"><table class="qt">
-      <caption class="sr-only">Qualifying results, fastest best lap first</caption>
+      <caption class="sr-only">Qualifying results in order of registration. Pos is the rank by best lap.</caption>
       <thead><tr>
         <th scope="col" class="stick pos" title="Position">Pos</th><th scope="col" class="stick2">Team</th>
         <th scope="col">Best lap (s)</th><th scope="col">Status</th><th scope="col">Gap (s)</th><th scope="col">Completion</th>
