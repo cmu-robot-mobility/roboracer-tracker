@@ -1,6 +1,6 @@
-# F1TENTH Race Control
+# RoboRacer Race Control
 
-Live qualifying times, bracket and results for the CMU 16-665 F1TENTH race.
+Live qualifying times, bracket and results for the CMU 16-665 RoboRacer race.
 
 - **Public board** (`index.html`): anyone can open it with no login. It updates live.
 - **TA console** (`admin.html`): sign in with Google. Only emails on the TA list can make changes.

@@ -386,9 +386,9 @@ function renderChrome() {
   if (onTrack && !running) $('statusText').textContent = C.elapsed(lm) > 0 ? 'Race paused' : 'On track';
   document.querySelector('.tabs').toggleAttribute('data-live', running);
   $('updated').textContent = S?.updated ? `Updated ${clockTime(S.updated)}` : '';
-  $('evName').textContent = S?.event?.name || 'F1TENTH Race';
+  $('evName').textContent = S?.event?.name || 'RoboRacer Race';
   $('evSeason').textContent = S?.event?.season || '';
-  $('footText').textContent = [S?.event?.name || 'F1TENTH Race', S?.event?.season].filter(Boolean).join(' · ');
+  $('footText').textContent = [S?.event?.name || 'RoboRacer Race', S?.event?.season].filter(Boolean).join(' · ');
 
   const b = $('banner');
   b.classList.toggle('on', offline);

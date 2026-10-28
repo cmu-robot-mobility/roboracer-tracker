@@ -1,5 +1,5 @@
 // Pure race logic: no DOM, no Firebase. Every function takes the season state `S`.
-// Rules source: CMU 16-665 F1TENTH Race Rules (October 2026).
+// Rules source: CMU 16-665 RoboRacer Race Rules (October 2026).
 
 export const EXTRA_CREDIT = [50, 30, 20, 10];
 

@@ -153,9 +153,9 @@ function syncState() {
 }
 function header() {
   const u = st.auth?.user, season = seasonLabel(), [k, t] = syncState();
-  return `<div class="checker"></div>
+  return `
   <div class="hdr-bar wrap">
-    <div class="brand"><span class="brand-k">F1TENTH · Race control</span><h1>TA Console</h1>${season ? `<span class="hdr-season" title="${esc(season)}">${esc(season)}</span>` : ''}</div>
+    <div class="brand"><span class="brand-k">RoboRacer · Race control</span><h1>TA Console</h1>${season ? `<span class="hdr-season" title="${esc(season)}">${esc(season)}</span>` : ''}</div>
     <div class="hdr-tools">
       ${u && st.auth.isTA ? `<span class="save ${k}" role="status"><span class="save-ico" aria-hidden="true"></span>${esc(t)}</span>` : ''}
       <a class="btn ghost" href="index.html" target="_blank" rel="noopener"><span class="hide-sm">View </span>Public board <span aria-hidden="true">↗</span></a>
