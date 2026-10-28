@@ -252,7 +252,7 @@ function renderQuali(S) {
       <caption class="sr-only">Qualifying results, fastest best lap first</caption>
       <thead><tr>
         <th scope="col" class="stick pos" title="Position">Pos</th><th scope="col" class="stick2">Team</th>
-        <th scope="col">Best lap (s)</th><th scope="col">Status</th><th scope="col">Gap (s)</th><th scope="col">Grade</th>
+        <th scope="col">Best lap (s)</th><th scope="col">Status</th><th scope="col">Gap (s)</th><th scope="col">Completion</th>
         <th scope="col">Obstacle</th><th scope="col" class="num" title="Crash-free laps in a row">Crash-free</th>
         <th scope="col" class="num">Scrapes</th><th scope="col" class="num">Crashes</th><th scope="col">Hardware</th><th scope="col" class="num" title="Evaluation the team chose">Eval</th><th scope="col" class="num" title="Timed laps in that evaluation">Laps</th>
       </tr></thead>

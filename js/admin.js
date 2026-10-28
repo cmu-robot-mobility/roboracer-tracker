@@ -344,7 +344,7 @@ function evalBlock(S, t, e, ch, fast) {
       ${stepper('Scrapes', e.scrapes, 'bump', `${a} data-f="scrapes"`, e.scrapes > 0, true, 'sc' + k, '2 free, then −5%')}
       ${stepper('Crashes', e.crashes, 'bump', `${a} data-f="crashes"`, e.crashes > 0, true, 'cr' + k, '−10% each')}
     </div>
-    <p class="small grade-line">Grade <b class="mono">${Math.round(g)}%</b> <span class="muted">= ${parts.join(' ')}</span></p>
+    <p class="small grade-line">Completion <b class="mono">${Math.round(g)}%</b> <span class="muted">= ${parts.join(' ')}</span></p>
     <div class="ev-foot">${cbtn({ key: 're' + k, label: 'Delete evaluation', confirm: `Tap again: delete evaluation ${e.n}`, act: 'rmeval', cls: 'btn sm danger', attrs: a })}</div>
   </section>`;
 }
@@ -352,12 +352,12 @@ function teamCard(S, t, fast) {
   const q = C.Q(S, t.id), b = C.best(S, t.id), g = C.grade(S, t.id), order = C.qualiOrder(S), id = t.id, ch = C.chosenEval(S, id);
   return `<details class="tc" data-team="${id}" ${st.open.has(id) ? 'open' : ''}>
     <summary data-k="sum${id}"><span class="tc-pos mono">${b != null ? 'P' + (order.indexOf(id) + 1) : '—'}</span><span class="tc-name">${esc(t.name)}${ch ? `<span class="tc-ev small muted"> · eval ${ch.n}</span>` : ''}${q.evals.some(e => e.timer) ? ' <span class="pill live">⏱ Timing</span>' : ''}</span>
-      <span class="tc-best mono${b != null && b === fast ? ' purple' : ''}" title="Best lap (seconds)">${C.fmtTime(b)}</span><span class="tc-grade mono" title="Grade">${Math.round(g)}%</span>${statusPill(C.qualiStatus(S, id))}<span class="tc-chev" aria-hidden="true"></span></summary>
+      <span class="tc-best mono${b != null && b === fast ? ' purple' : ''}" title="Best lap (seconds)">${C.fmtTime(b)}</span><span class="tc-grade mono" title="Completion">${Math.round(g)}%</span>${statusPill(C.qualiStatus(S, id))}<span class="tc-chev" aria-hidden="true"></span></summary>
     <div class="tc-body">
       <div class="field"><label for="nm${id}">Team name</label><input id="nm${id}" data-k="nm${id}" value="${dv('nm' + id, t.name)}" data-change="rename" data-id="${id}" maxlength="40" autocomplete="off"></div>
       <div class="field"><span class="flbl">Hardware check</span>${seg('Hardware check for ' + t.name, [['null', 'Unchecked', '•'], ['true', 'Compliant', '✓', 'good'], ['false', 'Not compliant', '✕', 'bad']], String(t.hw ?? null), 'hw', `data-id="${id}"`, 'hw' + id)}</div>
       <div class="field"><span class="flbl">Obstacle avoidance</span>${seg('Obstacle avoidance for ' + t.name, [['pending', 'Pending', '•'], ['pass', 'Pass', '✓', 'good'], ['fail', 'Fail', '✕', 'bad']], q.obstacle, 'obs', `data-id="${id}"`, 'ob' + id)}</div>
-      <div class="field"><span class="flbl">Timed evaluations <span class="muted small">The team picks one. Its best lap and grade are what count.</span></span>
+      <div class="field"><span class="flbl">Timed evaluations <span class="muted small">The team picks one. Its best lap and completion are what count.</span></span>
         <div class="evals">${q.evals.map(e => evalBlock(S, t, e, ch, fast)).join('') || '<p class="muted small">No evaluations yet. Adding a lap starts evaluation 1.</p>'}</div>
         <div class="row">${q.evals.length ? '' : `<form class="row nowrap" data-form="lap" data-id="${id}" autocomplete="off"><label class="sr" for="li${id}">First lap time in seconds for ${esc(t.name)}</label><input id="li${id}" class="mono" data-k="li${id}" value="${dv('li' + id, '')}" inputmode="decimal" enterkeyhint="done" placeholder="seconds, e.g. 12.345"><button class="btn">Add lap</button></form>`}
           <button type="button" class="btn" data-act="addeval" data-id="${id}" data-k="ae${id}">+ New evaluation</button></div>${q.evals.length ? '' : msg('li' + id)}</div>
