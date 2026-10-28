@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>F1TENTH TA Console</title>
+<meta name="robots" content="noindex">
+<meta name="description" content="Race control for the CMU 16-665 F1TENTH race: enter qualifying times, run heats and publish results live.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/admin.css">
+<script>try{var t=JSON.parse(localStorage.getItem('rc-admin-theme'));if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header id="hdr" class="hdr"></header>
+<div id="banner"></div>
+<nav id="nav" class="nav" aria-label="Console sections"></nav>
+<main id="main" class="wrap main" tabindex="-1">
+  <section class="gate panel"><h2>Loading race control…</h2></section>
+</main>
+<div id="sync" class="sync" aria-hidden="true"></div>
+<div id="toasts"></div>
+<div id="sr-live" class="sr" aria-live="polite"></div>
+<noscript><p class="wrap">The TA console needs JavaScript.</p></noscript>
+<script type="module" src="js/admin.js"></script>
+</body>
+</html>

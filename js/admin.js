@@ -1,0 +1,581 @@
+// TA console. All race logic lives in core.js (A.* mutations); this file is UI only.
+// Rendering: each view returns [key, html] regions; a region's DOM is only replaced when its
+// HTML changes, focus/typing is preserved across re-renders, and re-renders are deferred while a
+// finger is down so a live update from another phone can never swallow a tap.
+import { store } from './store.js';
+import * as C from './core.js';
+
+const { A, esc } = C;
+const $ = s => document.querySelector(s);
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
+};
+const vib = p => { try { navigator.vibrate?.(p); } catch { /* unsupported */ } };
+const TABS = [['heat', 'Heat'], ['quali', 'Qualifying'], ['bracket', 'Bracket'], ['feed', 'Feed'], ['settings', 'Settings']];
+const LAP_LOCK = 600, CLOCK_LOCK = 1000, ARM_MS = 4000;
+
+const st = {
+  auth: null, cfg: undefined, cfgErr: null, sid: null, S: undefined, unS: null,
+  tab: TABS.some(t => t[0] === location.hash.slice(1)) ? location.hash.slice(1) : LS.get('rc-admin-tab', null),
+  side: LS.get('rc-admin-side', 'both'), theme: LS.get('rc-admin-theme', 'system'), lapTeam: LS.get('rc-admin-lapteam', null),
+  inflight: 0, online: navigator.onLine, confirm: {}, open: new Set(), drafts: {}, msgs: {}, lapWarn: null,
+  lock: [0, 0], unlock: [0, 0], clockLock: 0, pend: [0, 0], hold: false, dirty: false, wl: null, wlBusy: false,
+};
+
+/* ---------------- small helpers ---------------- */
+const I = {
+  heat: '<path d="M5 21V4h11l-2 4 2 4H5"/>',
+  quali: '<circle cx="12" cy="14" r="7"/><path d="M12 14v-4M10 3h4M12 3v4"/>',
+  bracket: '<path d="M3 5h5v5H3M3 14h5v5H3M8 7.5h3v9H8M11 12h4M15 9h6v6h-6"/>',
+  feed: '<path d="M4 10v4h3l7 4V6l-7 4H4zM18 9a4 4 0 0 1 0 6"/>',
+  settings: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+  play: '<path d="M7 4v16l13-8z" fill="currentColor"/>',
+  pause: '<path d="M7 4h4v16H7zM14 4h4v16h-4z" fill="currentColor"/>',
+  flag: '<path d="M5 21V4M5 4h14v9H5" /><path d="M5 4h3.5v3H5zM12 4h3.5v3H12zM8.5 7H12v3H8.5zM15.5 7H19v3h-3.5zM5 10h3.5v3H5zM12 10h3.5v3H12z" fill="currentColor" stroke="none"/>',
+};
+const svg = (n, cls = 'ico') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${I[n]}</svg>`;
+/** Value for an input: what the user is typing (draft) wins over the stored value. */
+const dv = (k, v) => esc(k in st.drafts ? st.drafts[k] : (v ?? ''));
+const armed = k => (st.confirm[k] || 0) > Date.now();
+function announce(t) { const n = $('#sr-live'); n.textContent = ''; setTimeout(() => { n.textContent = t; }, 30); }
+function msg(k) { const m = st.msgs[k]; return `<p class="fmsg ${m?.kind || ''}" id="msg-${esc(k)}" aria-live="polite">${m ? esc(m.text) : ''}</p>`; }
+function setMsg(k, text, kind = '') { st.msgs[k] = { text, kind }; render(); announce(text); }
+/** Two-step button: first tap arms it (changes label + style), second tap within 4 s acts. */
+function cbtn({ key, label, confirm, act, cls = 'btn', attrs = '', disabled = false, type = 'button' }) {
+  const on = armed(key);
+  return `<button type="${type}" class="${cls}${on ? ' armed' : ''}" data-confirm="${esc(key)}" data-k="c:${esc(key)}"${act ? ` data-act="${act}"` : ''} ${attrs}${disabled ? ' disabled' : ''}>${on ? `<span aria-hidden="true">⚠</span> ${confirm}` : label}</button>`;
+}
+function seg(label, opts, cur, act, extra = '', kpre = act) {
+  return `<div class="seg" role="group" aria-label="${esc(label)}">${opts.map(([v, l, ico, tone = '']) =>
+    `<button type="button" class="seg-b ${tone}" aria-pressed="${v === cur}" data-act="${act}" data-v="${esc(v)}" ${extra} data-k="${esc(kpre + v)}"><span class="seg-ico" aria-hidden="true">${v === cur ? ico : ''}</span>${l}</button>`).join('')}</div>`;
+}
+const phase = m => m.status === 'done' ? 'done' : m.timer.start ? 'running' : C.elapsed(m) > 0 ? 'paused' : 'ready';
+const dist = (m, i) => { const d = C.distance(m, i); return Number.isInteger(d) ? String(d) : d.toFixed(2); };
+const normTime = s => String(s).trim().replace(',', '.').replace(/^(\d+)\.(\d{1,2})\.(\d+)$/, '$1:$2.$3');
+const seasonLabel = () => st.S?.event ? [st.S.event.season, st.S.event.name].filter(Boolean).join(' · ') : (st.cfg?.seasons?.find(s => s.id === st.sid)?.label || '');
+const tab = () => st.tab || (st.S && C.liveMatch(st.S) && phase(C.liveMatch(st.S)) !== 'done' ? 'heat' : 'quali');
+function setTab(t) { st.tab = t; LS.set('rc-admin-tab', t); try { history.replaceState(null, '', '#' + t); } catch { /* file:// */ } render(); scrollTo(0, 0); $('#main').focus({ preventScroll: true }); }
+
+function errText(e) {
+  const c = String(e?.code || ''), m = String(e?.message || e || '');
+  if (/permission/i.test(c + m)) return "Not saved: you don't have permission to edit. Are you still on the TA list?";
+  if (/unavailable|deadline|network|offline/i.test(c + m)) return 'Not saved: no connection. Check your signal and try again.';
+  if (e instanceof TypeError) return 'Not saved: that item was changed on another device. Try again.';
+  return 'Not saved: ' + m;
+}
+function toast(text, bad = false) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (bad ? ' bad' : ''); t.setAttribute('role', bad ? 'alert' : 'status'); t.textContent = (bad ? '⚠ ' : '') + text;
+  t.addEventListener('click', () => t.remove());
+  $('#toasts').replaceChildren(t); clearTimeout(st.tt); st.tt = setTimeout(() => t.remove(), bad ? 6500 : 2600);
+  if (bad) vib([60, 40, 60]);
+}
+/** Track any store promise for the save indicator; errors become toasts. Resolves true/false. */
+async function job(p) {
+  st.inflight++; render();
+  try { await p; return true; } catch (e) { toast(errText(e), true); return false; } finally { st.inflight--; render(); }
+}
+const run = fn => st.sid ? job(store.mutate(st.sid, fn)) : Promise.resolve(false);
+const mustMatch = (S, mid) => { const m = C.match(S, mid); if (!m) throw new Error('That heat no longer exists (bracket was rebuilt).'); return m; };
+const mustTeam = (S, id) => { if (!C.team(S, id)) throw new Error('That team was removed on another device.'); };
+const guardTrack = (S, mid) => { const cur = C.liveMatch(S); if (cur && cur.id !== mid && cur.timer.start) throw new Error('Pause or finish the heat on track first.'); };
+
+/* ---------------- rendering core ---------------- */
+function swap(el, html) {
+  const a = document.activeElement, k = a && a !== document.body && el.contains(a) ? a.dataset.k : null;
+  let sel = null;
+  if (k && a.matches('input[type=text],input:not([type]),input[type=email],textarea')) { try { sel = [a.selectionStart, a.selectionEnd]; } catch { /* n/a */ } }
+  el.innerHTML = html;
+  if (k) {
+    const n = el.querySelector(`[data-k="${CSS.escape(k)}"]`);
+    if (n && !n.disabled) { n.focus({ preventScroll: true }); if (sel) try { n.setSelectionRange(...sel); } catch { /* n/a */ } }
+  }
+}
+function patch(el, html) { if (el._h !== html) { swap(el, html); el._h = html; } }
+function regions(root, parts) {
+  const keys = parts.map(p => p[0]);
+  [...root.children].forEach(c => { if (!keys.includes(c.dataset.r)) c.remove(); });
+  parts.forEach(([k, html], i) => {
+    let el = [...root.children].find(c => c.dataset.r === k);
+    if (!el) { el = document.createElement('div'); el.dataset.r = k; el.className = 'region'; }
+    if (root.children[i] !== el) root.insertBefore(el, root.children[i] || null);
+    patch(el, html);
+  });
+}
+function render() {
+  if (st.hold) { st.dirty = true; return; }
+  st.dirty = false;
+  patch($('#hdr'), header());
+  patch($('#banner'), banner());
+  const sync = $('#sync'), s = syncState();
+  sync.className = 'sync ' + s[0]; sync.textContent = s[0] === 'ok' ? '' : s[1];
+  const g = gate();
+  if (g) { patch($('#nav'), ''); regions($('#main'), [['gate', g]]); return; }
+  patch($('#nav'), nav());
+  const t = tab();
+  document.body.dataset.tab = t;
+  regions($('#main'), ({ heat: vHeat, quali: vQuali, bracket: vBracket, feed: vFeed, settings: vSettings })[t]());
+  tick();
+  const lm = C.liveMatch(st.S);
+  wake(t === 'heat' && !!lm && phase(lm) === 'running');
+}
+function tick() {
+  const S = st.S; if (!S?.bracket) return;
+  document.querySelectorAll('[data-clock]').forEach(el => {
+    const m = C.match(S, el.dataset.clock); if (!m) return;
+    const r = C.remaining(S, m), txt = C.fmtClock(r);
+    if (el.textContent !== txt) el.textContent = txt;
+    const w = el.closest('[data-clockwrap]'), up = r <= 0 && m.status !== 'done';
+    if (w && w.classList.contains('timeup') !== up) {
+      w.classList.toggle('timeup', up);
+      const l = w.querySelector('[data-clocklbl]'); if (l) l.textContent = up ? 'Time! Finish & score below' : l.dataset.clocklbl;
+      if (up && m.timer.start && st.vibedUp !== m.id) { st.vibedUp = m.id; vib([200, 100, 200]); }
+    }
+  });
+}
+async function wake(on) {
+  if (st.wlBusy || !('wakeLock' in navigator)) return;
+  try {
+    st.wlBusy = true;
+    if (on && !st.wl && document.visibilityState === 'visible') { st.wl = await navigator.wakeLock.request('screen'); st.wl.addEventListener('release', () => { st.wl = null; }); }
+    else if (!on && st.wl) { await st.wl.release(); st.wl = null; }
+  } catch { /* denied */ } finally { st.wlBusy = false; }
+}
+
+/* ---------------- chrome: header, banner, nav ---------------- */
+function syncState() {
+  if (!st.online) return ['bad', 'Offline: changes won’t save'];
+  if (st.inflight) return ['busy', 'Saving…'];
+  return ['ok', 'Saved'];
+}
+function header() {
+  const u = st.auth?.user, season = seasonLabel(), [k, t] = syncState();
+  return `<div class="checker"></div>
+  <div class="hdr-bar wrap">
+    <div class="brand"><span class="brand-k">F1TENTH · Race control</span><h1>TA Console</h1>${season ? `<span class="hdr-season" title="${esc(season)}">${esc(season)}</span>` : ''}</div>
+    <div class="hdr-tools">
+      ${u && st.auth.isTA ? `<span class="save ${k}" role="status"><span class="save-ico" aria-hidden="true"></span>${esc(t)}</span>` : ''}
+      <a class="btn ghost" href="index.html" target="_blank" rel="noopener"><span class="hide-sm">View </span>Public board <span aria-hidden="true">↗</span></a>
+    </div>
+    ${u ? `<div class="hdr-acct small"><span class="muted">Signed in as</span> <b class="email">${esc(u.email)}</b> <button type="button" class="btn sm" data-act="signout" data-k="signout">Sign out</button></div>` : ''}
+  </div>`;
+}
+function banner() {
+  if (store.mode !== 'demo') return '';
+  const has = st.S?.teams?.length;
+  return `<div class="wrap"><div class="demo" role="note"><p><b>Demo mode</b> — data is only stored in this browser.</p><div class="demo-b">
+    ${has ? cbtn({ key: 'seed', label: 'Load sample data', confirm: 'Adds 6 more teams. Tap again', act: 'seed', cls: 'btn sm' }) : '<button type="button" class="btn sm" data-act="seed" data-k="seed">Load sample data</button>'}
+    ${cbtn({ key: 'reset', label: 'Reset', confirm: 'Wipe all demo data?', act: 'reset', cls: 'btn sm danger' })}</div></div></div>`;
+}
+function nav() {
+  const t = tab(), lm = st.S && C.liveMatch(st.S), run_ = lm && phase(lm) === 'running';
+  return `<div class="nav-in wrap">${TABS.map(([k, l]) => `<button type="button" class="nav-b" data-act="tab" data-tab="${k}" data-k="nav-${k}" ${k === t ? 'aria-current="page"' : ''}>${svg(k)}<span>${l}</span>${k === 'heat' && run_ ? '<span class="dot live" aria-hidden="true"></span><span class="sr"> (heat running)</span>' : ''}</button>`).join('')}</div>`;
+}
+
+/* ---------------- gate screens ---------------- */
+function gate() {
+  const a = st.auth, card = (h, b) => `<section class="gate panel">${h}${b}</section>`;
+  const pub = '<p class="small"><a href="index.html">Go to the public results board →</a></p>';
+  if (!a) return card('<h2>Connecting…</h2>', '<p class="muted">Loading race control.</p>');
+  if (!a.user) return card('<p class="eyebrow">Race control</p><h2>Sign in to enter results</h2>', `<p>This console is for course TAs. Sign in with your Google account; only emails on the TA list can make changes. Everyone else can follow the race live on the public board.</p><button type="button" class="btn pri xl" data-act="signin" data-k="signin">Sign in with Google</button>${pub}`);
+  const out = `<button type="button" class="btn" data-act="signout" data-k="signout2">Sign out</button>`;
+  if (!a.isTA && a.canClaim) return card('<p class="eyebrow">First-time setup</p><h2>Set up this race board</h2>', `<p>No TAs exist on this project yet. Become the first TA as <b>${esc(a.user.email)}</b>. You can add the other TAs afterwards in Settings.</p><div class="row"><button type="button" class="btn pri xl" data-act="claim" data-k="claim">Become the first TA</button>${out}</div>`);
+  if (!a.isTA) return card('<h2>Not on the TA list</h2>', `<p>Your account (<b>${esc(a.user.email)}</b>) isn’t on the TA list. Ask a current TA to add you in <b>Settings → TA list</b>, then reload this page.</p><div class="row">${out}</div>${pub}`);
+  if (st.cfg === undefined) return card('<h2>Loading…</h2>', '');
+  if (st.cfg === null) return card('<h2>Can’t load the race board</h2>', `<p class="muted">${esc(errText(st.cfgErr))}</p>`);
+  if (!st.cfg.current) return card('<p class="eyebrow">First-time setup</p><h2>Create the first season</h2>', `<p>Each year’s race is a season. You can start a new one next year and this one stays archived.</p>${seasonForm('fs', '', 'Create season', false)}`);
+  if (st.S === undefined) return card('<h2>Loading season…</h2>', '');
+  if (st.S === null) return card('<h2>Season not found</h2>', '<p>The current season document is missing. Pick another season or create one in Settings.</p>');
+  return null;
+}
+function seasonForm(p, name, submit, twoStep) {
+  return `<form class="stack" data-form="season" data-p="${p}" autocomplete="off">
+    <div class="field"><label for="${p}-name">Course name</label><input id="${p}-name" data-k="${p}-name" value="${dv(p + '-name', name)}" placeholder="CMU 16-665 Robot Mobility" required></div>
+    <div class="field"><label for="${p}-label">Season label</label><input id="${p}-label" data-k="${p}-label" value="${dv(p + '-label', '')}" placeholder="Fall 2027" required></div>
+    ${twoStep ? cbtn({ key: p + '-go', label: submit, confirm: 'Tap again: start it and make it current', cls: 'btn pri', type: 'submit' }) : `<button class="btn pri">${submit}</button>`}
+    ${msg(p)}</form>`;
+}
+
+/* ---------------- HEAT ---------------- */
+function vHeat() {
+  const S = st.S;
+  if (!S.bracket) return [['h0', `<div class="empty big-empty"><h2>No bracket yet</h2><p>Heats run from the bracket. Finish qualifying, then build the bracket.</p><button type="button" class="btn pri" data-act="tab" data-tab="bracket" data-k="go-b">Go to Bracket</button></div>`]];
+  const m = C.liveMatch(S);
+  if (!m) return [['h0', noLive(S)]];
+  const e = C.entrants(S, m);
+  return [['h-top', heatTop(S, m)], ['h-clock', heatClock(S, m, e)], ['h-side', sidePick(S, m, e)], ['h-teams', heatTeams(S, m, e)], ['h-end', heatEnd(S, m, e)]];
+}
+const nm = (S, m, e, i) => e[i] ? C.tname(S, e[i]) : C.srcLabel(S, m.src[i]);
+function phasePill(m) {
+  return { ready: '<span class="pill">● On track · clock not started</span>', running: '<span class="pill live"><span class="dot live" aria-hidden="true"></span> Running</span>', paused: '<span class="pill wait">❚❚ Paused</span>', done: '<span class="pill ok">✓ Finished</span>' }[phase(m)];
+}
+function upNext(S, title) {
+  const n = C.nextMatch(S); if (!n) return '';
+  const e = C.entrants(S, n);
+  return `<section class="panel upnext"><p class="eyebrow">${title}</p><h3 class="un-title">${esc(n.label)}</h3><p class="un-vs"><b>${esc(C.tname(S, e[0]))}</b> <span class="muted">vs</span> <b>${esc(C.tname(S, e[1]))}</b></p><button type="button" class="btn pri lg" data-act="track" data-mid="${n.id}" data-k="track-${n.id}">Put on track</button></section>`;
+}
+function noLive(S) {
+  const champ = C.standings(S)[0];
+  const ready = S.bracket.matches.filter(m => m.status === 'pending' && C.entrants(S, m).every(Boolean));
+  return `<div class="empty big-empty"><h2>Nothing on track</h2><p>${champ ? `Bracket complete. Champion: <b>${esc(C.tname(S, champ))}</b>.` : 'Choose the next heat to put on track.'}</p></div>
+  ${upNext(S, 'Up next')}
+  ${ready.length > 1 ? `<section class="panel"><h3>Other heats ready</h3><div class="stack">${ready.slice(1).map(m => { const e = C.entrants(S, m); return `<button type="button" class="btn lg left" data-act="track" data-mid="${m.id}" data-k="track-${m.id}"><b>${esc(m.label)}</b>&nbsp;· ${esc(C.tname(S, e[0]))} vs ${esc(C.tname(S, e[1]))}</button>`; }).join('')}</div></section>` : ''}`;
+}
+function heatTop(S, m) {
+  return `<div class="heat-top"><div class="ht-l"><p class="eyebrow">${esc(m.round)} · Heat ${esc(m.id)}</p><h2>${esc(m.label)}</h2></div><div class="ht-r">${phasePill(m)}<button type="button" class="btn sm" data-act="tab" data-tab="bracket" data-k="switch">Switch heat</button></div></div>`;
+}
+function heatClock(S, m, e) {
+  const ph = phase(m);
+  if (ph === 'done') return `<section class="clock panel ph-done" aria-label="Heat clock"><div class="clock-read"><div class="clock-lbl">Finished · time raced</div><div class="clock-time mono">${C.fmtClock(C.elapsed(m))}</div></div></section>`;
+  const lbl = { running: 'Remaining', paused: 'Paused · remaining', ready: `Heat length ${C.fmtClock(C.heatLength(S))}` }[ph];
+  const btn = ph === 'running' ? `${svg('pause')}<span>Pause clock</span>` : `${svg('play')}<span>${ph === 'paused' ? 'Resume clock' : 'Start heat'}</span>`;
+  return `<section class="clock panel ph-${ph}" data-clockwrap aria-label="Heat clock">
+    <div class="clock-read"><div class="clock-lbl" data-clocklbl="${esc(lbl)}">${esc(lbl)}</div><div class="clock-time mono" data-clock="${m.id}" role="timer" aria-atomic="true">${C.fmtClock(C.remaining(S, m))}</div></div>
+    <button type="button" class="clockbtn cb-${ph}" data-act="clock" data-mid="${m.id}" data-running="${ph === 'running' ? 1 : 0}" data-k="clock" ${e[0] && e[1] ? '' : 'disabled'}>${btn}</button>
+  </section>`;
+}
+function sidePick(S, m, e) {
+  const o = [['A', esc(nm(S, m, e, 0))], ['both', 'Both'], ['B', esc(nm(S, m, e, 1))]];
+  return `<div class="sidepick"><span class="sp-lbl" id="sp-lbl">This device counts</span>${seg('This device counts laps for', o.map(([v, l]) => [v, `<span class="sp-t">${l}</span>`, '✓']), st.side, 'side')}</div>`;
+}
+function heatTeams(S, m, e) {
+  if (st.side === 'A' || st.side === 'B') { const i = st.side === 'A' ? 0 : 1; return `<div class="teams one">${teamPanel(S, m, e, i)}${teamMini(S, m, e, 1 - i)}</div>`; }
+  return `<div class="teams two">${teamPanel(S, m, e, 0)}${teamPanel(S, m, e, 1)}</div>`;
+}
+function teamPanel(S, m, e, i) {
+  const name = nm(S, m, e, i), ph = phase(m), done = ph === 'done', seed = C.seedOf(S, e[i]);
+  const left = st.lock[i] - Date.now(), locked = left > 0, win = done && m.winner === i;
+  const hint = st.pend[i] ? 'Sending…' : done ? 'Reopen the heat to change laps' : ph === 'ready' ? 'Clock not started' : ph === 'paused' ? 'Clock paused' : '';
+  const fk = `frac${m.id}${i}`;
+  return `<section class="tp${m.dq[i] ? ' is-dq' : ''}${win ? ' is-win' : ''}${done && !win ? ' is-lose' : ''}" aria-labelledby="tpn${i}">
+    <header class="tp-h"><span class="tp-slot" aria-hidden="true">${'AB'[i]}</span><div class="tp-id"><h3 id="tpn${i}" class="tp-name">${esc(name)}</h3><span class="small muted">${seed ? 'Seed ' + seed : ''}</span></div>${win ? '<span class="pill ok">✓ Winner</span>' : ''}</header>
+    <div class="tp-count" aria-label="${m.laps[i]} laps${m.frac[i] ? ' plus ' + m.frac[i].toFixed(2) : ''}"><span class="tp-laps mono">${m.laps[i]}</span><span class="tp-unit">${m.laps[i] === 1 ? 'lap' : 'laps'}${m.frac[i] ? `<span class="mono tp-frac">+${m.frac[i].toFixed(2)}</span>` : ''}</span></div>
+    ${m.dq[i] ? '<p class="dq-flag">✕ Disqualified</p>' : ''}
+    <button type="button" class="lapbtn${locked ? ' locked' : ''}" style="--ld:${locked ? left - LAP_LOCK : 0}ms" data-act="lap" data-i="${i}" data-mid="${m.id}" data-k="lap${i}" ${done || !e[i] ? 'disabled' : ''} aria-label="Add one lap for ${esc(name)}"><span class="lb-plus">+1</span><span class="lb-word">LAP</span></button>
+    <p class="tp-hint small">${hint}</p>
+    <div class="tp-tools">
+      <button type="button" class="btn minus" data-act="unlap" data-i="${i}" data-mid="${m.id}" data-k="unlap${i}" ${done || !m.laps[i] ? 'disabled' : ''} aria-label="Remove one lap for ${esc(name)}">−1 lap</button>
+      <label class="frac"><span>Partial lap</span><input type="number" inputmode="decimal" min="0" max="0.99" step="0.05" placeholder="0.00" value="${dv(fk, m.frac[i] || '')}" data-change="frac" data-mid="${m.id}" data-i="${i}" data-k="${fk}" ${done ? 'disabled' : ''} aria-label="Partial lap distance for ${esc(name)}, 0 to 0.99"></label>
+      ${cbtn({ key: `dq${m.id}${i}`, label: m.dq[i] ? 'Lift DQ' : 'DQ', confirm: m.dq[i] ? 'Lift DQ?' : 'Confirm DQ', act: 'dq', cls: 'btn danger dqbtn', attrs: `data-mid="${m.id}" data-i="${i}" data-on="${m.dq[i] ? 0 : 1}" aria-label="${m.dq[i] ? 'Lift disqualification' : 'Disqualify'} ${esc(name)}"`, disabled: done || !e[i] })}
+    </div>
+  </section>`;
+}
+function teamMini(S, m, e, i) {
+  return `<section class="tp-mini" aria-label="${esc(nm(S, m, e, i))}, counted on another device"><span class="tp-slot" aria-hidden="true">${'AB'[i]}</span><span class="tp-name">${esc(nm(S, m, e, i))}${m.dq[i] ? ' <span class="pill no">DQ</span>' : ''}</span><span class="mono mini-laps">${dist(m, i)}</span><span class="small muted mini-note">laps · counted on another device</span></section>`;
+}
+function why(m) { return m.dq[0] !== m.dq[1] ? 'opponent DQ' : m.laps[0] !== m.laps[1] ? 'more laps' : m.frac[0] !== m.frac[1] ? 'partial-lap tiebreak' : 'tie, better seed'; }
+function heatEnd(S, m, e) {
+  const nk = 'note' + m.id;
+  const note = `<div class="field"><label for="${nk}">Race note <span class="muted small">(shown publicly)</span></label><input id="${nk}" data-k="${nk}" value="${dv(nk, m.note)}" data-change="note" data-mid="${m.id}" maxlength="160" placeholder="e.g. restart after track invasion" autocomplete="off"></div>`;
+  const reset = cbtn({ key: 'rs' + m.id, label: 'Reset heat', confirm: 'Tap again: wipe laps & clock', act: 'resetheat', cls: 'btn danger', attrs: `data-mid="${m.id}"` });
+  const ready = e[0] && e[1];
+  if (m.status !== 'done') {
+    const w = ready ? C.autoWinner(S, m) : 0;
+    const proj = ready ? `${C.tname(S, e[w])} wins ${dist(m, w)} – ${dist(m, 1 - w)} (${why(m)})` : '';
+    return `<section class="panel end"><h3>Finish</h3>
+      <p class="small">Auto-scored: DQ, then most laps, then partial lap, then better seed.${ready ? ` If finished now: <b>${esc(proj)}</b>` : ''}</p>
+      ${cbtn({ key: 'fin' + m.id, label: `${svg('flag')} Finish &amp; score`, confirm: `Confirm: ${esc(proj)}`, act: 'finish', cls: 'btn finbtn', attrs: `data-mid="${m.id}"`, disabled: !ready })}
+      ${note}<div class="row end-tools">${reset}</div></section>`;
+  }
+  const w = m.winner, auto = C.autoWinner(S, m), o = 1 - w;
+  return `<section class="panel end result"><p class="eyebrow">Result${w !== auto ? ' · set manually' : ''}</p>
+    <h2 class="res-w">${svg('flag')} ${esc(C.tname(S, e[w]))} wins</h2>
+    <p class="mono res-s">${dist(m, w)} – ${dist(m, o)} laps <span class="muted small">(${w !== auto ? 'TA override' : why(m)})</span></p>
+    <div class="row">${cbtn({ key: 'sw' + m.id, label: `Make ${esc(C.tname(S, e[o]))} the winner`, confirm: `Tap again: ${esc(C.tname(S, e[o]))} wins`, act: 'setwinner', attrs: `data-mid="${m.id}" data-i="${o}"` })}
+    ${cbtn({ key: 'ro' + m.id, label: 'Reopen heat', confirm: 'Tap again to reopen', act: 'reopen', attrs: `data-mid="${m.id}"` })}</div>
+    ${note}<div class="row end-tools">${reset}</div></section>${upNext(S, 'Next heat')}`;
+}
+
+/* ---------------- QUALIFYING ---------------- */
+const SP = { advances: ['ok', '✓ Advances'], 'hw-fail': ['no', '✕ Hardware'], 'obstacle-fail': ['no', '✕ Obstacle'], pending: ['wait', '… Pending'] };
+const statusPill = s => `<span class="pill ${SP[s][0]}">${SP[s][1]}</span>`;
+function vQuali() {
+  const S = st.S, fast = C.fastestLap(S);
+  return [
+    ['q-head', `<div class="viewhead"><h2>Qualifying</h2><p class="small muted">${S.teams.length} teams · ${C.seedOrder(S).length} advance · fastest lap <span class="mono purple">${C.fmtTime(fast)}</span></p></div>`],
+    ['q-rapid', S.teams.length ? rapid(S, fast) : ''],
+    ['q-list', S.teams.length ? `<div class="tclist">${S.teams.map(t => teamCard(S, t, fast)).join('')}</div>` : '<div class="empty">No teams yet. Add the first team below.</div>'],
+    ['q-add', `<section class="panel"><h3>Add team</h3><form class="row nowrap" data-form="addteam" autocomplete="off"><label for="newteam" class="sr">New team name</label><input id="newteam" data-k="newteam" value="${dv('newteam', '')}" placeholder="Team name" maxlength="40" enterkeyhint="done"><button class="btn pri">Add team</button></form>${msg('newteam')}</section>`],
+  ];
+}
+function lapList(S, id, fast, removable) {
+  const q = C.Q(S, id), b = C.best(S, id);
+  if (!q.laps.length) return '<span class="muted small">No timed laps yet.</span>';
+  return q.laps.map((v, j) => {
+    const t = C.fmtTime(v), tag = v === b ? `<small>${v === fast ? 'FASTEST' : 'BEST'}</small>` : '', cls = `lapchip${v === b ? ' best' : ''}${v === fast ? ' fast' : ''}`;
+    return removable ? cbtn({ key: `dl${id}${j}`, label: `<span class="mono">${t}</span>${tag}<span class="x" aria-hidden="true">×</span>`, confirm: `Delete ${t}?`, act: 'dellap', cls, attrs: `data-id="${id}" data-v="${v}" aria-label="Lap ${t}${v === b ? ', best' : ''}. Delete"` })
+      : `<span class="${cls}"><span class="mono">${t}</span>${tag}</span>`;
+  }).join('');
+}
+function rapid(S, fast) {
+  const sel = C.team(S, st.lapTeam) ? st.lapTeam : null, name = sel ? C.tname(S, sel) : '';
+  if (!sel) delete st.msgs.lapin; // selected team was removed
+  const q = sel && C.Q(S, sel), last = q?.laps.at(-1);
+  return `<section class="panel rapid" aria-labelledby="rapid-h"><h3 id="rapid-h">Rapid lap entry</h3>
+    <p class="small muted">Tap a team, type the time, press Enter. Focus stays put for the next lap. On a phone keypad, type 1.02.345 for 1:02.345.</p>
+    <div class="chips" role="group" aria-label="Team for lap entry">${S.teams.map(t => `<button type="button" class="chip" aria-pressed="${t.id === sel}" data-act="pickteam" data-id="${t.id}" data-k="pk${t.id}">${t.id === sel ? '<span aria-hidden="true">✓ </span>' : ''}${esc(t.name)}</button>`).join('')}</div>
+    <form class="lapform" data-form="lap" autocomplete="off">
+      <label for="lapin" class="lf-lbl">${sel ? `Lap time for <b>${esc(name)}</b>` : 'Pick a team first'}</label>
+      <div class="row nowrap"><input id="lapin" class="lapin mono" data-k="lapin" value="${dv('lapin', '')}" inputmode="decimal" enterkeyhint="done" placeholder="12.345" ${sel ? '' : 'disabled'} aria-describedby="msg-lapin"><button class="btn pri lg" ${sel ? '' : 'disabled'}>Add lap</button></div>
+    </form>${msg('lapin')}
+    ${sel ? `<div class="rapid-laps"><span class="small muted">${esc(name)} laps:</span> ${lapList(S, sel, fast, false)}
+      ${last != null ? `<button type="button" class="btn sm" data-act="undolap" data-id="${sel}" data-v="${last}" data-k="undo">Undo last (${C.fmtTime(last)})</button>` : ''}</div>` : ''}
+  </section>`;
+}
+function stepper(label, val, act, attrs, canDown, canUp, k, sub = '') {
+  return `<div class="stepper" role="group" aria-label="${esc(label)}"><span class="flbl">${label}${sub ? `<span class="muted small"> ${sub}</span>` : ''}</span><div class="st-row">
+    <button type="button" class="btn st-b" data-act="${act}" data-d="-1" ${attrs} data-k="${k}-" ${canDown ? '' : 'disabled'} aria-label="Decrease ${esc(label)}">−</button>
+    <output class="mono st-v">${val}</output>
+    <button type="button" class="btn st-b" data-act="${act}" data-d="1" ${attrs} data-k="${k}+" ${canUp ? '' : 'disabled'} aria-label="Increase ${esc(label)}">+</button></div></div>`;
+}
+function teamCard(S, t, fast) {
+  const q = C.Q(S, t.id), b = C.best(S, t.id), g = C.grade(S, t.id), order = C.qualiOrder(S), id = t.id;
+  const scr = Math.max(0, q.scrapes - 2), parts = [`${q.dist / 2 * 100} distance`];
+  if (scr) parts.push(`− ${5 * scr} scrapes`); if (q.crashes) parts.push(`− ${10 * q.crashes} crashes`);
+  return `<details class="tc" data-team="${id}" ${st.open.has(id) ? 'open' : ''}>
+    <summary data-k="sum${id}"><span class="tc-pos mono">${b != null ? 'P' + (order.indexOf(id) + 1) : '—'}</span><span class="tc-name">${esc(t.name)}</span>
+      <span class="tc-best mono${b != null && b === fast ? ' purple' : ''}" title="Best lap">${C.fmtTime(b)}</span><span class="tc-grade mono" title="Grade">${Math.round(g)}%</span>${statusPill(C.qualiStatus(S, id))}<span class="tc-chev" aria-hidden="true"></span></summary>
+    <div class="tc-body">
+      <div class="field"><label for="nm${id}">Team name</label><input id="nm${id}" data-k="nm${id}" value="${dv('nm' + id, t.name)}" data-change="rename" data-id="${id}" maxlength="40" autocomplete="off"></div>
+      <div class="field"><span class="flbl">Hardware check</span>${seg('Hardware check for ' + t.name, [['null', 'Unchecked', '•'], ['true', 'Compliant', '✓', 'good'], ['false', 'Not compliant', '✕', 'bad']], String(t.hw ?? null), 'hw', `data-id="${id}"`, 'hw' + id)}</div>
+      <div class="field"><span class="flbl">Obstacle avoidance</span>${seg('Obstacle avoidance for ' + t.name, [['pending', 'Pending', '•'], ['pass', 'Pass', '✓', 'good'], ['fail', 'Fail', '✕', 'bad']], q.obstacle, 'obs', `data-id="${id}"`, 'ob' + id)}</div>
+      <div class="grade-grid">
+        ${stepper('Crash-free laps', `${q.dist.toFixed(2)}<span class="muted">/2</span>`, 'dist', `data-id="${id}"`, q.dist > 0, q.dist < 2, 'ds' + id, 'consecutive')}
+        ${stepper('Scrapes', q.scrapes, 'bump', `data-id="${id}" data-f="scrapes"`, q.scrapes > 0, true, 'sc' + id, '2 free, −5% after')}
+        ${stepper('Crashes', q.crashes, 'bump', `data-id="${id}" data-f="crashes"`, q.crashes > 0, true, 'cr' + id, '−10% each')}
+      </div>
+      <p class="small grade-line">Grade <b class="mono">${Math.round(g)}%</b> <span class="muted">= ${parts.join(' ')}</span></p>
+      <div class="field"><span class="flbl">Timed laps <span class="muted small">(tap a time twice to delete)</span></span><div class="lapchips">${lapList(S, id, fast, true)}</div>
+        <form class="row nowrap" data-form="lap" data-id="${id}" autocomplete="off"><label class="sr" for="li${id}">Add lap time for ${esc(t.name)}</label><input id="li${id}" class="mono" data-k="li${id}" value="${dv('li' + id, '')}" inputmode="decimal" enterkeyhint="done" placeholder="12.345" aria-describedby="msg-li${id}"><button class="btn">Add lap</button></form>${msg('li' + id)}</div>
+      <div class="tc-foot">${cbtn({ key: 'rm' + id, label: 'Remove team', confirm: `Tap again: remove ${esc(t.name)}`, act: 'rmteam', cls: 'btn danger', attrs: `data-id="${id}"` })}</div>
+    </div></details>`;
+}
+
+/* ---------------- BRACKET ---------------- */
+function vBracket() {
+  const S = st.S, b = S.bracket, seeds = C.seedOrder(S), out = C.qualiOrder(S).filter(id => !C.advances(S, id));
+  const reason = { 'hw-fail': 'hardware not compliant', 'obstacle-fail': 'failed obstacle avoidance', pending: '' };
+  const pendWhy = id => { const t = C.team(S, id), q = C.Q(S, id); return [q.obstacle === 'pending' && 'obstacle pending', C.best(S, id) == null && 'no timed lap'].filter(Boolean).join(', '); };
+  const changed = b && JSON.stringify(b.seeds) !== JSON.stringify(seeds);
+  const anyRes = b?.matches.some(m => m.status !== 'pending');
+  const seedsHtml = `<section class="panel"><h3>Who advances</h3><p class="small muted">Seeded by best qualifying lap. Needs a pass on obstacle avoidance, compliant (or unchecked) hardware and a timed lap.</p>
+    ${seeds.length ? `<ol class="seedlist">${seeds.map((id, i) => `<li><span class="seed mono">${i + 1}</span><span class="nm">${esc(C.tname(S, id))}</span><span class="mono">${C.fmtTime(C.best(S, id))}</span></li>`).join('')}</ol>` : '<p class="empty">No team qualifies yet.</p>'}
+    ${out.length ? `<h3 class="sub">Not advancing</h3><ul class="outlist">${out.map(id => `<li><span class="nm">${esc(C.tname(S, id))}</span>${statusPill(C.qualiStatus(S, id))}<span class="small muted">${esc(reason[C.qualiStatus(S, id)] || pendWhy(id))}</span></li>`).join('')}</ul>` : ''}</section>`;
+  const actions = !b
+    ? `<section class="panel"><button type="button" class="btn pri xl" data-act="build" data-k="build" ${seeds.length < 2 ? 'disabled' : ''}>Build bracket from qualifying · ${seeds.length} teams</button>${seeds.length < 2 ? '<p class="small muted">At least 2 teams must advance.</p>' : ''}</section>`
+    : `<section class="panel"><p class="small">${b.seeds.length} teams seeded · ${b.x}-team bracket${b.x < b.seeds.length ? ` with ${b.seeds.length - b.x} play-in${b.seeds.length - b.x > 1 ? 's' : ''}` : ''}${C.match(S, 'THIRD') ? ' · 3rd place match' : ''}</p>
+      ${changed ? '<p class="warn" role="note"><b>⚠ Qualifying changed since the bracket was built.</b> Rebuild to re-seed. Rebuilding wipes all heat results.</p>' : ''}
+      <div class="row">${cbtn({ key: 'rebuild', label: 'Rebuild from qualifying', confirm: anyRes ? 'Tap again: wipes all heat results' : 'Tap again to rebuild', act: 'build', cls: 'btn' + (changed ? ' pri' : '') })}
+      ${cbtn({ key: 'clear', label: 'Clear bracket', confirm: anyRes ? 'Tap again: deletes all heats' : 'Tap again to clear', act: 'clear', cls: 'btn danger' })}</div></section>`;
+  const parts = [['b-head', '<div class="viewhead"><h2>Bracket</h2><p class="small muted">Tap a heat to put it on track.</p></div>']];
+  if (b) parts.push(['b-rounds', `<div class="rounds">${C.rounds(S).map(r => `<section class="round"><h3>${esc(r.name)}</h3>${r.matches.map(m => mcard(S, m)).join('')}</section>`).join('')}</div>`]);
+  parts.push(['b-act', actions], ['b-seeds', seedsHtml]);
+  return parts;
+}
+function mcard(S, m) {
+  const e = C.entrants(S, m), live = S.bracket.liveId === m.id, nx = C.nextMatch(S)?.id === m.id, ready = e[0] && e[1], ph = phase(m);
+  const row = i => `<li class="${m.winner === i ? 'w' : m.winner === 1 - i ? 'l' : ''}"><span class="seed mono">${C.seedOf(S, e[i]) ?? ''}</span><span class="nm">${e[i] ? esc(C.tname(S, e[i])) : `<i class="muted">${esc(C.srcLabel(S, m.src[i]))}</i>`}${m.dq[i] ? ' <span class="pill no">DQ</span>' : ''}</span><span class="mono sc">${m.status !== 'pending' || C.distance(m, i) ? dist(m, i) : ''}</span><span class="wi" aria-label="${m.winner === i ? 'winner' : ''}">${m.winner === i ? '✓' : ''}</span></li>`;
+  const pill = live && ph !== 'done' ? (ph === 'running' ? '<span class="pill live">● Running</span>' : '<span class="pill live">On track</span>') : m.status === 'done' ? '<span class="pill ok">✓ Final</span>' : nx ? '<span class="pill wait">Up next</span>' : ready ? '<span class="pill">Ready</span>' : '<span class="pill">Waiting</span>';
+  const btn = live ? `<button type="button" class="btn pri" data-act="tab" data-tab="heat" data-k="open-${m.id}">Open heat control</button>`
+    : m.status === 'done' ? `<button type="button" class="btn" data-act="track" data-mid="${m.id}" data-k="track-${m.id}">Review / edit result</button>`
+      : ready ? `<button type="button" class="btn${nx ? ' pri' : ''}" data-act="track" data-mid="${m.id}" data-k="track-${m.id}">Put on track</button>` : '<button type="button" class="btn" disabled>Waiting for entrants</button>';
+  return `<article class="mc${live ? ' is-live' : ''}${nx ? ' is-next' : ''}${m.status === 'done' ? ' is-done' : ''}" aria-label="${esc(m.label)}"><header><span class="mc-l">${esc(m.label)}</span>${pill}</header><ol class="mc-e">${row(0)}${row(1)}</ol>${btn}</article>`;
+}
+
+/* ---------------- FEED ---------------- */
+function vFeed() {
+  const S = st.S;
+  return [['f-post', `<div class="viewhead"><h2>Feed</h2></div><section class="panel"><h3>Post announcement</h3><form class="row nowrap" data-form="post" autocomplete="off"><label for="postin" class="sr">Announcement</label><input id="postin" data-k="postin" value="${dv('postin', '')}" maxlength="200" placeholder="e.g. 10-minute break, next heat 3:40" enterkeyhint="send"><button class="btn pri">Post</button></form>${msg('postin')}<p class="small muted">Appears instantly in the public feed, alongside automatic updates.</p></section>`],
+    ['f-log', `<section class="panel"><h3>Recent activity</h3>${S.log?.length ? `<ol class="log">${S.log.slice(0, 60).map(l => `<li><time class="mono small muted" datetime="${new Date(l.t).toISOString()}">${C.clockTime(l.t)}</time><span>${esc(l.m)}</span></li>`).join('')}</ol>` : '<p class="muted">Nothing yet.</p>'}</section>`]];
+}
+
+/* ---------------- SETTINGS ---------------- */
+function vSettings() {
+  const S = st.S, ev = S.event, me = st.auth.user.email, admins = st.auth.admins || [];
+  const eventP = `<form class="panel stack" data-form="event" autocomplete="off"><h3>Event</h3>
+    <div class="field"><label for="ev-name">Course name</label><input id="ev-name" data-k="ev-name" value="${dv('ev-name', ev.name)}" maxlength="80"></div>
+    <div class="field"><label for="ev-season">Season label</label><input id="ev-season" data-k="ev-season" value="${dv('ev-season', ev.season)}" maxlength="40"></div>
+    <div class="field"><label for="ev-heat">Heat length (minutes)</label><input id="ev-heat" type="number" inputmode="decimal" min="0.5" max="60" step="0.5" data-k="ev-heat" value="${dv('ev-heat', C.heatLength(S) / 60)}"></div>
+    <button class="btn pri">Save event settings</button>${msg('ev')}</form>`;
+  const taP = `<section class="panel stack"><h3>TA list</h3><p class="small muted">Everyone on this list can edit everything here. Use the exact Google account email. You can’t remove yourself.</p>
+    <ul class="list">${admins.map(a => `<li><span class="email">${esc(a)}</span>${a === me ? '<span class="pill">You</span>' : cbtn({ key: 'ra' + a, label: 'Remove', confirm: 'Tap again to remove', act: 'rmadmin', cls: 'btn sm danger', attrs: `data-email="${esc(a)}" aria-label="Remove ${esc(a)}"` })}</li>`).join('') || '<li class="muted">No TAs listed.</li>'}</ul>
+    <form class="row nowrap" data-form="addadmin" autocomplete="off"><label for="newadmin" class="sr">TA email to add</label><input id="newadmin" type="email" data-k="newadmin" value="${dv('newadmin', '')}" placeholder="name@andrew.cmu.edu" autocapitalize="off" spellcheck="false"><button class="btn">Add TA</button></form>${msg('newadmin')}</section>`;
+  const seasons = st.cfg.seasons || [];
+  const seaP = `<section class="panel stack"><h3>Seasons</h3><p class="small">Each year’s race is its own season. Starting a new season gives a blank board (no teams, no bracket) and makes it the one the public board shows. <b>Old seasons are never deleted</b>: they stay archived and viewable, and you can switch back at any time.</p>
+    <ul class="list">${seasons.map(s => `<li><span>${esc(s.label || s.id)}</span>${s.id === st.cfg.current ? '<span class="pill live">● Current</span>' : cbtn({ key: 'mc' + s.id, label: 'Make current', confirm: 'Tap again: public board switches', act: 'makecurrent', cls: 'btn sm', attrs: `data-id="${esc(s.id)}"` })}</li>`).join('')}</ul>
+    <h3 class="sub">Start a new season</h3>${seasonForm('ns', ev.name, 'Start new season', true)}</section>`;
+  const dispP = `<section class="panel stack"><h3>Display on this device</h3>${seg('Theme', [['system', 'System', '✓'], ['light', 'Light', '✓'], ['dark', 'Dark', '✓']], st.theme, 'theme')}<p class="small muted">Light is easier to read in sunlight.</p></section>`;
+  return [['s-head', '<div class="viewhead"><h2>Settings</h2></div>'], ['s-grid', `<div class="sgrid">${eventP}${taP}${seaP}${dispP}</div>`]];
+}
+
+/* ---------------- actions ---------------- */
+const ACT = {
+  tab: d => setTab(d.tab),
+  signin: () => store.signIn().catch(e => { if (!/popup-closed|cancelled-popup/.test(e?.code || '')) toast('Sign-in failed: ' + (e?.message || e), true); }),
+  signout: () => store.signOut().catch(e => toast(errText(e), true)),
+  claim: () => job(store.claim()),
+  seed: () => job(store.seedSample()).then(ok => ok && toast('Sample data loaded')),
+  reset: () => store.reset(),
+  side: d => { st.side = d.v; LS.set('rc-admin-side', d.v); render(); },
+  theme: d => { st.theme = d.v; LS.set('rc-admin-theme', d.v); if (d.v === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = d.v; render(); },
+  lap(d) {
+    const i = +d.i, now = Date.now();
+    if (now < st.lock[i]) { vib(8); return; } // double-tap guard
+    st.lock[i] = now + LAP_LOCK; st.pend[i]++; vib(35);
+    setTimeout(render, LAP_LOCK + 20);
+    run(S => { const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('This heat is finished. Reopen it to change laps.'); return A.lap(S, d.mid, i, 1); })
+      .finally(() => { st.pend[i]--; render(); });
+    render();
+  },
+  unlap(d) {
+    const i = +d.i, now = Date.now(); if (now < st.unlock[i]) return; st.unlock[i] = now + LAP_LOCK; vib(15);
+    run(S => { const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('This heat is finished. Reopen it to change laps.'); return A.lap(S, d.mid, i, -1); });
+  },
+  clock(d) {
+    const now = Date.now(); if (now < st.clockLock) return; st.clockLock = now + CLOCK_LOCK;
+    const was = d.running === '1'; vib(was ? 30 : [40, 40, 40]);
+    run(S => {
+      const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('This heat is finished.');
+      // Act on what this TA saw, so two TAs tapping Start together can't cancel each other out.
+      if (!!m.timer.start !== was) throw new Error(was ? 'The clock was already paused on another device.' : 'The clock was already started on another device.');
+      return A.toggleClock(S, d.mid);
+    });
+  },
+  dq: d => run(S => { mustMatch(S, d.mid); return A.setDq(S, d.mid, +d.i, d.on === '1'); }),
+  finish: d => run(S => { const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('Already finished on another device.'); return A.finish(S, d.mid); }).then(ok => ok && (vib([60, 60, 180]), toast('Heat scored'))),
+  setwinner: d => run(S => { mustMatch(S, d.mid); return A.setWinner(S, d.mid, +d.i); }),
+  reopen: d => run(S => { mustMatch(S, d.mid); guardTrack(S, d.mid); return A.reopen(S, d.mid); }),
+  resetheat: d => run(S => { mustMatch(S, d.mid); return A.resetHeat(S, d.mid); }),
+  track: d => run(S => { mustMatch(S, d.mid); return A.putOnTrack(S, d.mid); }).then(ok => ok && setTab('heat')),
+  build: () => run(S => {
+    if (C.seedOrder(S).length < 2) throw new Error('At least 2 teams must advance to build a bracket.');
+    if (C.liveMatch(S)?.timer.start) throw new Error('Pause or finish the heat on track first.');
+    return A.buildBracket(S);
+  }).then(ok => ok && toast('Bracket built')),
+  clear: () => run(S => { if (C.liveMatch(S)?.timer.start) throw new Error('Pause or finish the heat on track first.'); return A.clearBracket(S); }),
+  pickteam: d => { st.lapTeam = d.id; LS.set('rc-admin-lapteam', d.id); delete st.msgs.lapin; st.lapWarn = null; render(); $('#lapin')?.focus(); },
+  undolap: d => delLap(d.id, +d.v),
+  dellap: d => delLap(d.id, +d.v),
+  hw: d => run(S => { mustTeam(S, d.id); return A.setHardware(S, d.id, d.v === 'null' ? null : d.v === 'true'); }),
+  obs: d => run(S => { mustTeam(S, d.id); return A.setObstacle(S, d.id, d.v); }),
+  dist: d => run(S => { mustTeam(S, d.id); return A.setDistance(S, d.id, C.Q(S, d.id).dist + 0.25 * d.d); }),
+  bump: d => run(S => { mustTeam(S, d.id); return A.bump(S, d.id, d.f, +d.d); }),
+  rmteam: d => run(S => {
+    mustTeam(S, d.id);
+    if (S.bracket?.seeds.includes(d.id)) throw new Error('This team is seeded in the bracket. Clear or rebuild the bracket first.');
+    return A.removeTeam(S, d.id);
+  }).then(ok => ok && (st.open.delete(d.id), toast('Team removed'))),
+  rmadmin: d => job(store.setAdmins((st.auth.admins || []).filter(a => a !== d.email))),
+  makecurrent: d => job(store.setCurrentSeason(d.id)).then(ok => ok && toast('Switched season')),
+};
+function delLap(id, v) {
+  return run(S => { mustTeam(S, id); const i = C.Q(S, id).laps.lastIndexOf(v); if (i < 0) throw new Error('That lap was already deleted.'); A.deleteLap(S, id, i); return null; })
+    .then(ok => ok && toast(`Deleted ${C.fmtTime(v)}`));
+}
+const clearDrafts = (...ks) => ks.forEach(k => delete st.drafts[k]);
+const FORM = {
+  lap(f) {
+    const inp = f.querySelector('input'), k = inp.dataset.k, id = f.dataset.id || st.lapTeam, raw = inp.value;
+    if (!id || !C.team(st.S, id)) return setMsg(k, 'Pick a team first.', 'bad');
+    if (!raw.trim()) return;
+    const secs = C.parseTime(normTime(raw));
+    if (secs == null) { vib([40, 30, 40]); return setMsg(k, `Couldn’t read “${raw}”. Type 12.345 or 1:02.345.`, 'bad'); }
+    if ((secs < 3 || secs > 300) && !(st.lapWarn?.k === k && st.lapWarn.raw === raw)) {
+      st.lapWarn = { k, raw }; vib([40, 30, 40]);
+      return setMsg(k, `${C.fmtTime(secs)} looks unusual. Press Enter again to add it anyway.`, 'warn');
+    }
+    st.lapWarn = null; inp.value = ''; clearDrafts(k);
+    let out = '';
+    run(S => { mustTeam(S, id); out = A.addLap(S, id, secs); return out; }).then(ok => {
+      if (ok) { vib(20); setMsg(k, '✓ ' + out, 'ok'); }
+      else { st.drafts[k] = raw; render(); }
+    });
+  },
+  addteam(f) {
+    const inp = f.querySelector('input'), name = inp.value.trim(), k = 'newteam';
+    if (!name) return setMsg(k, 'Type a team name.', 'bad');
+    if (st.S.teams.some(t => t.name.toLowerCase() === name.toLowerCase())) return setMsg(k, `“${name}” already exists.`, 'bad');
+    inp.value = ''; clearDrafts(k);
+    run(S => A.addTeam(S, name)).then(ok => ok ? setMsg(k, `✓ ${name} added`, 'ok') : (st.drafts[k] = name, render()));
+  },
+  post(f) {
+    const inp = f.querySelector('input'), t = inp.value.trim(); if (!t) return;
+    inp.value = ''; clearDrafts('postin');
+    run(S => A.post(S, t)).then(ok => ok ? setMsg('postin', '✓ Posted', 'ok') : (st.drafts.postin = t, render()));
+  },
+  event(f) {
+    const v = id => f.querySelector('#' + id).value.trim(), min = parseFloat(v('ev-heat'));
+    if (!(min >= 0.5 && min <= 60)) return setMsg('ev', 'Heat length must be between 0.5 and 60 minutes.', 'bad');
+    const patch = { name: v('ev-name'), season: v('ev-season'), heat: Math.round(min * 60) };
+    const sid = st.sid; run(S => A.setEvent(S, patch)).then(ok => { if (ok) { store.relabelSeason(sid, patch.name, patch.season).catch(() => {}); clearDrafts('ev-name', 'ev-season', 'ev-heat'); setMsg('ev', '✓ Saved', 'ok'); } });
+  },
+  addadmin(f) {
+    const inp = f.querySelector('input'), e = inp.value.trim().toLowerCase(), admins = st.auth.admins || [];
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return setMsg('newadmin', 'Enter a full email address.', 'bad');
+    if (admins.includes(e)) return setMsg('newadmin', `${e} is already a TA.`, 'warn');
+    job(store.setAdmins([...admins, e])).then(ok => { if (ok) { inp.value = ''; clearDrafts('newadmin'); setMsg('newadmin', `✓ ${e} added`, 'ok'); } });
+  },
+  season(f) {
+    const p = f.dataset.p, name = f.querySelector(`#${p}-name`).value.trim(), label = f.querySelector(`#${p}-label`).value.trim();
+    if (!name || !label) return setMsg(p, 'Fill in both fields.', 'bad');
+    job(store.createSeason(name, label)).then(ok => { if (ok) { clearDrafts(p + '-name', p + '-label'); delete st.msgs[p]; toast(`${label} started and is now current`); setTab('quali'); } });
+  },
+};
+const CHANGE = {
+  rename(el) {
+    const name = el.value.trim(), id = el.dataset.id, t = C.team(st.S, id);
+    if (!t || name === t.name) return;
+    if (!name) { el.value = t.name; return toast('Team name can’t be empty.', true); }
+    run(S => { mustTeam(S, id); return A.renameTeam(S, id, name); });
+  },
+  frac(el) {
+    const raw = el.value.trim(), v = raw === '' ? 0 : parseFloat(raw);
+    if (!(v >= 0 && v < 1)) { el.value = ''; return toast('Partial lap must be between 0 and 0.99.', true); }
+    run(S => { mustMatch(S, el.dataset.mid); return A.setFrac(S, el.dataset.mid, +el.dataset.i, v); });
+  },
+  note: el => run(S => { mustMatch(S, el.dataset.mid); return A.setNote(S, el.dataset.mid, el.value.trim()); }),
+};
+
+/* ---------------- events ---------------- */
+document.addEventListener('click', e => {
+  const t = e.target.closest('button,[data-act]');
+  const key = t?.dataset.confirm, wasArmed = key && armed(key), had = Object.keys(st.confirm).length;
+  st.confirm = {};
+  if (t && key && !wasArmed && !t.disabled) {
+    e.preventDefault(); st.confirm[key] = Date.now() + ARM_MS; vib(15); announce('Tap again to confirm');
+    setTimeout(render, ARM_MS + 50); render(); return;
+  }
+  if (t?.dataset.act && !t.disabled && ACT[t.dataset.act]) ACT[t.dataset.act](t.dataset, t);
+  if (had || key) setTimeout(render, 0); // after default actions (e.g. form submit) run
+});
+document.addEventListener('submit', e => { const f = e.target.closest('[data-form]'); if (!f) return; e.preventDefault(); FORM[f.dataset.form]?.(f); });
+document.addEventListener('change', e => { const el = e.target; if (!el.dataset?.change) return; delete st.drafts[el.dataset.k]; CHANGE[el.dataset.change]?.(el); });
+document.addEventListener('input', e => { const k = e.target.dataset?.k; if (k && e.target.matches('input,textarea')) st.drafts[k] = e.target.value; if (k === 'lapin' || k?.startsWith('li')) { if (st.msgs[k]?.kind !== 'ok') delete st.msgs[k]; } });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && Object.keys(st.confirm).length) { st.confirm = {}; render(); }
+  if (e.key === 'Enter' && e.target.dataset?.change) { e.preventDefault(); e.target.blur(); }
+});
+document.addEventListener('toggle', e => { const d = e.target; if (d.matches?.('details[data-team]')) d.open ? st.open.add(d.dataset.team) : st.open.delete(d.dataset.team); }, true);
+// Hold re-renders while a pointer is down so the button under the finger isn't replaced mid-tap.
+document.addEventListener('pointerdown', () => { st.hold = true; }, true);
+const release = () => { st.hold = false; setTimeout(() => { if (st.dirty && !st.hold) render(); }, 60); };
+document.addEventListener('pointerup', release, true);
+document.addEventListener('pointercancel', release, true);
+addEventListener('online', () => { st.online = true; render(); });
+addEventListener('offline', () => { st.online = false; render(); });
+document.addEventListener('visibilitychange', () => { st.wl = null; if (document.visibilityState === 'visible') render(); });
+setInterval(tick, 250);
+
+/* ---------------- data ---------------- */
+function watchSeason(id) {
+  st.unS?.(); st.unS = null; st.sid = id || null; st.S = id ? undefined : null;
+  if (id) st.unS = store.watchSeason(id, (S, err) => { st.S = S; if (err) st.cfgErr = err; render(); });
+}
+store.onAuth(a => { st.auth = a; render(); });
+store.watchConfig((cfg, err) => {
+  st.cfg = cfg || null; st.cfgErr = err || null;
+  if ((cfg?.current || null) !== st.sid) watchSeason(cfg?.current);
+  render();
+});
+render();

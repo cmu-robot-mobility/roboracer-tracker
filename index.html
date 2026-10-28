@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>F1TENTH Race Control</title>
+<meta name="description" content="Live qualifying times, bracket and results for the CMU 16-665 F1TENTH race.">
+<meta name="theme-color" content="#0E1B2C">
+<script>try{var t=localStorage.getItem('rc-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/public.css">
+<script type="module" src="js/public.js"></script>
+</head>
+<body>
+<header class="hdr">
+  <div class="checker" aria-hidden="true"></div>
+  <div class="wrap hdr-top">
+    <div class="brand">
+      <p class="kicker"><span class="kicker-mark">F1TENTH</span> Race Control</p>
+      <h1 id="evName">Race Control</h1>
+      <p id="evSeason" class="season"></p>
+    </div>
+    <div class="hdr-meta">
+      <div id="status" class="status" data-state="connecting"><span class="status-dot" aria-hidden="true"></span><span id="statusText">Connecting</span></div>
+      <p id="updated" class="updated mono"></p>
+      <label id="seasonPick" class="season-pick" hidden><span>Season</span> <select id="seasonSel"></select></label>
+    </div>
+  </div>
+  <nav class="tabs" aria-label="Sections">
+    <div class="wrap tabs-in">
+      <a href="#live" data-tab="live">Live<span class="tab-dot" aria-hidden="true"></span></a>
+      <a href="#quali" data-tab="quali">Qualifying</a>
+      <a href="#bracket" data-tab="bracket">Bracket</a>
+      <a href="#results" data-tab="results">Results</a>
+    </div>
+  </nav>
+</header>
+
+<div id="banner" class="banner" role="status" aria-live="polite"></div>
+
+<main id="main" class="wrap main" tabindex="-1">
+  <div id="archive" class="archive" hidden></div>
+
+  <section id="v-live" class="view" data-view="live" aria-labelledby="h-live">
+    <h2 id="h-live" class="sr-only">Live</h2>
+    <div id="liveHero"><div class="loading" aria-busy="true"><span class="loading-bar" aria-hidden="true"></span>Connecting to race control…</div></div>
+    <div class="live-grid">
+      <section class="block" aria-labelledby="h-top">
+        <div class="block-head"><h3 id="h-top">Qualifying</h3><a class="more" href="#quali">Full table</a></div>
+        <div id="liveQuali"></div>
+      </section>
+      <section class="block" aria-labelledby="h-feed">
+        <div class="block-head"><h3 id="h-feed">Race feed</h3></div>
+        <div id="liveFeed"></div>
+      </section>
+    </div>
+  </section>
+
+  <section id="v-quali" class="view" data-view="quali" aria-labelledby="h-quali" hidden>
+    <div class="view-head"><h2 id="h-quali">Qualifying</h2><p id="qualiSummary" class="view-sub"></p></div>
+    <div id="qualiTable"></div>
+    <details class="rules">
+      <summary>How qualifying is graded</summary>
+      <div class="rules-body">
+        <ul>
+          <li><b>Two consecutive crash-free laps = 100%.</b> Shorter runs scale with distance: 1.5 laps = 75%, 1 lap = 50%.</li>
+          <li><b>Scrapes:</b> the first two are free, then −5% each.</li>
+          <li><b>Crashes:</b> −10% each.</li>
+          <li><b>To advance to the race</b> a car must pass obstacle avoidance (2 consecutive laps) and meet the LiDAR-visibility hardware rule: 12&nbsp;cm of body between 10 and 25&nbsp;cm above the ground.</li>
+          <li><b>Seeding</b> is by best lap time among teams that advance. The fastest lap of the session is shown in <span class="purple">purple</span>.</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <section id="v-bracket" class="view" data-view="bracket" aria-labelledby="h-bracket" hidden>
+    <div class="view-head"><h2 id="h-bracket">Bracket</h2><p id="bracketSub" class="view-sub"></p></div>
+    <div id="bracket"></div>
+  </section>
+
+  <section id="v-results" class="view" data-view="results" aria-labelledby="h-results" hidden>
+    <div class="view-head"><h2 id="h-results">Results</h2><p id="resultsSub" class="view-sub"></p></div>
+    <div id="podium"></div>
+    <h3 class="sub-h">All teams</h3>
+    <div id="resultsTable"></div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="checker" aria-hidden="true"></div>
+  <div class="wrap foot-in">
+    <p>CMU 16-665 · F1TENTH · Results update live, no need to refresh.</p>
+    <div class="foot-links">
+      <button id="themeBtn" class="linkish" type="button">Theme: Auto</button>
+      <a class="linkish" href="admin.html">TA login</a>
+    </div>
+  </div>
+</footer>
+
+<div id="announce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
