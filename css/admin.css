@@ -286,3 +286,11 @@ a.btn{text-decoration:none}
 .ev-foot{display:flex;justify-content:flex-end}
 .tc-ev{font-weight:400}
 .dist-sel{min-height:44px;font-size:16px;width:100%;max-width:12em}
+
+/* qualifying lap timer */
+.lt{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.lt.running{display:grid;gap:10px;padding:12px;border-radius:8px;border:1px solid var(--live);background:color-mix(in srgb,var(--live) 8%,var(--surface))}
+.lt-read{display:flex;align-items:baseline;gap:8px}
+.lt-time{font-size:44px;font-weight:700;line-height:1}
+.lt-lap{min-height:110px;width:100%}
+.lt-lap .lb-word{font-size:14px;letter-spacing:.04em;text-transform:none;opacity:.85}

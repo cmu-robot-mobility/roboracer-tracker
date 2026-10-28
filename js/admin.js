@@ -20,7 +20,7 @@ const st = {
   tab: TABS.some(t => t[0] === location.hash.slice(1)) ? location.hash.slice(1) : LS.get('rc-admin-tab', null),
   side: LS.get('rc-admin-side', 'both'), theme: LS.get('rc-admin-theme', 'system'),
   inflight: 0, online: navigator.onLine, confirm: {}, open: new Set(), drafts: {}, msgs: {}, lapWarn: null,
-  lock: [0, 0], unlock: [0, 0], clockLock: 0, pend: [0, 0], hold: false, dirty: false, wl: null, wlBusy: false,
+  lock: [0, 0], unlock: [0, 0], ltLock: {}, clockLock: 0, pend: [0, 0], hold: false, dirty: false, wl: null, wlBusy: false,
 };
 
 /* ---------------- small helpers ---------------- */
@@ -121,7 +121,9 @@ function render() {
   wake(t === 'heat' && !!lm && phase(lm) === 'running');
 }
 function tick() {
-  const S = st.S; if (!S?.bracket) return;
+  const S = st.S;
+  document.querySelectorAll('[data-lapclock]').forEach(el => { const t = (C.nowMs() - +el.dataset.lapclock) / 1000; el.textContent = Math.max(0, t).toFixed(1); });
+  if (!S?.bracket) return;
   document.querySelectorAll('[data-clock]').forEach(el => {
     const m = C.match(S, el.dataset.clock); if (!m) return;
     const r = C.remaining(S, m), txt = C.fmtClock(r);
@@ -313,6 +315,19 @@ function stepper(label, val, act, attrs, canDown, canUp, k, sub = '') {
     <output class="mono st-v">${val}</output>
     <button type="button" class="btn st-b" data-act="${act}" data-d="1" ${attrs} data-k="${k}+" ${canUp ? '' : 'disabled'} aria-label="Increase ${esc(label)}">+</button></div></div>`;
 }
+function lapTimer(e, a, k) {
+  if (!e.timer) return `<div class="lt"><button type="button" class="btn pri lt-start" data-act="ltstart" ${a} data-k="lts${k}">⏱ Start lap timer</button><span class="small muted">Tap when the car crosses the start line.</span></div>`;
+  const locked = (st.ltLock[k] || 0) > Date.now();
+  return `<div class="lt running" aria-label="Lap timer running">
+    <div class="lt-read"><span class="small muted">Current lap</span><span class="lt-time mono" data-lapclock="${e.timer.last}" role="timer">${((C.nowMs() - e.timer.last) / 1000).toFixed(1)}</span><span class="small muted">s</span></div>
+    <button type="button" class="lapbtn lt-lap${locked ? ' locked' : ''}" data-act="ltlap" ${a} data-lk="${k}" data-k="ltl${k}" aria-label="Record lap"><span class="lb-plus">LAP</span><span class="lb-word">tap at the line</span></button>
+    <div class="row">
+      ${cbtn({ key: 'ltr' + k, label: 'Restart lap', confirm: 'Tap again: drop this lap', act: 'ltrestart', cls: 'btn sm', attrs: a })}
+      ${cbtn({ key: 'ltx' + k, label: 'Stop timer', confirm: 'Tap again to stop', act: 'ltstop', cls: 'btn sm danger', attrs: a })}
+    </div>
+    <p class="small muted">Restart lap skips the current lap without recording it (for a crash).</p>
+  </div>`;
+}
 function evalBlock(S, t, e, ch, fast) {
   const id = t.id, counts = e === ch, b = C.evalBest(e), g = C.evalGrade(e), scr = Math.max(0, e.scrapes - 2), k = id + e.id, a = `data-id="${id}" data-eid="${e.id}"`;
   const parts = [`${e.dist / 2 * 100} distance`];
@@ -321,6 +336,7 @@ function evalBlock(S, t, e, ch, fast) {
     <header class="ev-h"><h4>Evaluation ${e.n}</h4><span class="mono small ev-sum">${b != null ? C.fmtTime(b) + ' s' : 'no laps'} · ${Math.round(g)}%</span>
       ${counts ? '<span class="pill ok">✓ Counts</span>' : `<button type="button" class="btn sm" data-act="pickeval" ${a} data-k="pe${k}">Use this one</button>`}</header>
     <div class="lapchips">${lapList(e, id, fast, counts, true)}</div>
+    ${lapTimer(e, a, k)}
     <form class="row nowrap" data-form="lap" ${a} autocomplete="off"><label class="sr" for="li${k}">Lap time in seconds, ${esc(t.name)}, evaluation ${e.n}</label><input id="li${k}" class="mono" data-k="li${k}" value="${dv('li' + k, '')}" inputmode="decimal" enterkeyhint="done" placeholder="seconds, e.g. 12.345" aria-describedby="msg-li${k}"><button class="btn">Add lap</button></form>${msg('li' + k)}
     <div class="grade-grid">
       <div class="stepper"><label class="flbl" for="ds${k}">Crash-free laps<span class="muted small"> in a row</span></label><div class="st-row">
@@ -335,7 +351,7 @@ function evalBlock(S, t, e, ch, fast) {
 function teamCard(S, t, fast) {
   const q = C.Q(S, t.id), b = C.best(S, t.id), g = C.grade(S, t.id), order = C.qualiOrder(S), id = t.id, ch = C.chosenEval(S, id);
   return `<details class="tc" data-team="${id}" ${st.open.has(id) ? 'open' : ''}>
-    <summary data-k="sum${id}"><span class="tc-pos mono">${b != null ? 'P' + (order.indexOf(id) + 1) : '—'}</span><span class="tc-name">${esc(t.name)}${ch ? `<span class="tc-ev small muted"> · eval ${ch.n}</span>` : ''}</span>
+    <summary data-k="sum${id}"><span class="tc-pos mono">${b != null ? 'P' + (order.indexOf(id) + 1) : '—'}</span><span class="tc-name">${esc(t.name)}${ch ? `<span class="tc-ev small muted"> · eval ${ch.n}</span>` : ''}${q.evals.some(e => e.timer) ? ' <span class="pill live">⏱ Timing</span>' : ''}</span>
       <span class="tc-best mono${b != null && b === fast ? ' purple' : ''}" title="Best lap (seconds)">${C.fmtTime(b)}</span><span class="tc-grade mono" title="Grade">${Math.round(g)}%</span>${statusPill(C.qualiStatus(S, id))}<span class="tc-chev" aria-hidden="true"></span></summary>
     <div class="tc-body">
       <div class="field"><label for="nm${id}">Team name</label><input id="nm${id}" data-k="nm${id}" value="${dv('nm' + id, t.name)}" data-change="rename" data-id="${id}" maxlength="40" autocomplete="off"></div>
@@ -452,6 +468,14 @@ const ACT = {
   }).then(ok => ok && toast('Bracket built')),
   clear: () => run(S => { if (C.liveMatch(S)?.timer.start) throw new Error('Pause or finish the race on track first.'); return A.clearBracket(S); }),
   dellap: d => delLap(d.id, d.eid, +d.v),
+  ltstart: d => { const now = C.nowMs(); vib(30); run(S => { mustTeam(S, d.id); return A.startLapTimer(S, d.id, d.eid, now); }); },
+  ltlap(d) {
+    const now = C.nowMs(), k = d.lk; if ((st.ltLock[k] || 0) > Date.now()) { vib(8); return; } // double-tap guard
+    st.ltLock[k] = Date.now() + LAP_LOCK; vib(35); setTimeout(render, LAP_LOCK + 20); render();
+    let out = ''; run(S => { mustTeam(S, d.id); out = A.timerLap(S, d.id, d.eid, now); return out; }).then(ok => ok && toast(out));
+  },
+  ltrestart: d => { const now = C.nowMs(); run(S => { mustTeam(S, d.id); return A.restartLap(S, d.id, d.eid, now); }); },
+  ltstop: d => run(S => { mustTeam(S, d.id); return A.stopLapTimer(S, d.id, d.eid); }),
   addeval: d => run(S => { mustTeam(S, d.id); return A.addEval(S, d.id); }).then(ok => ok && toast('New evaluation started')),
   pickeval: d => run(S => { mustTeam(S, d.id); return A.pickEval(S, d.id, d.eid); }),
   rmeval: d => run(S => { mustTeam(S, d.id); return A.removeEval(S, d.id, d.eid); }),

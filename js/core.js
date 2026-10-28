@@ -198,6 +198,19 @@ export const A = {
     return `${tname(S, id)}: ${fmtTime(secs)} s in evaluation ${e.n}${note}`;
   },
   deleteLap: (S, id, i, eid) => { evalFor(S, id, eid).laps.splice(i, 1); return null; },
+  /* Qualifying stopwatch. `now` is the moment the TA tapped (ms, skew-corrected), so the time
+   * recorded doesn't depend on how long the save takes. timer.last = last line crossing. */
+  startLapTimer: (S, id, eid, now = nowMs()) => {
+    const e = evalFor(S, id, eid); if (e.timer) throw new Error('The timer is already running on another device.');
+    e.timer = { start: now, last: now }; return `${tname(S, id)} is on track (evaluation ${e.n})`;
+  },
+  timerLap: (S, id, eid, now = nowMs()) => {
+    const e = evalFor(S, id, eid); if (!e.timer) throw new Error('The timer was stopped on another device.');
+    const secs = Math.round(now - e.timer.last) / 1000; if (secs <= 0) throw new Error('That lap was already recorded.');
+    const msg = A.addLap(S, id, secs, e.id); e.timer.last = now; return msg;
+  },
+  restartLap: (S, id, eid, now = nowMs()) => { const e = evalFor(S, id, eid); if (e.timer) e.timer.last = now; return null; },
+  stopLapTimer: (S, id, eid) => { const e = evalFor(S, id, eid); e.timer = null; return null; },
   buildBracket: S => { S.bracket = buildBracket(seedOrder(S)); return S.bracket ? `Bracket set: ${S.bracket.seeds.length} teams seeded from qualifying` : null; },
   clearBracket: S => { S.bracket = null; return 'Bracket cleared'; },
   putOnTrack: (S, mid) => {
