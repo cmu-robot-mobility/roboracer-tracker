@@ -2,20 +2,20 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function myEmail() { return request.auth.token.email.lower(); }
     function adminsPath() { return /databases/$(database)/documents/meta/admins; }
-    function isTA() { return signedIn() && exists(adminsPath()) && request.auth.token.email.lower() in get(adminsPath()).data.emails; }
+    function isTA() { return signedIn() && exists(adminsPath()) && myEmail() in get(adminsPath()).data.emails; }
 
     // Everyone (no login) can read everything. Only TAs can write.
-    match /meta/config   { allow read: if true; allow write: if isTA(); }
-    match /seasons/{id}  { allow read: if true; allow write: if isTA(); }
+    match /meta/config { allow read: if true; allow write: if isTA(); }
+    match /seasons/{id} { allow read: if true; allow write: if isTA(); }
 
     match /meta/admins {
       allow read: if true;
       // Bootstrap: on a brand-new project, the first signed-in person may make themselves the only TA.
-      allow create: if signedIn() && !exists(adminsPath())
-                    && request.resource.data.emails == [request.auth.token.email.lower()];
+      allow create: if signedIn() && !exists(adminsPath()) && request.resource.data.emails.size() == 1 && request.resource.data.emails[0] == myEmail();
       // After that, TAs manage the list but cannot remove themselves (avoids locking everyone out).
-      allow update: if isTA() && request.auth.token.email.lower() in request.resource.data.emails;
+      allow update: if isTA() && myEmail() in request.resource.data.emails;
     }
   }
 }
