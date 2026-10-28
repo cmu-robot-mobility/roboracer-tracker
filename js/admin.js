@@ -288,7 +288,7 @@ function heatEnd(S, m, e) {
 }
 
 /* ---------------- QUALIFYING ---------------- */
-const SP = { advances: ['ok', '✓ Advances'], 'hw-fail': ['no', '✕ Hardware'], 'obstacle-fail': ['no', '✕ Obstacle'], pending: ['wait', '… Pending'] };
+const SP = { advances: ['ok', '✓ Advances'], 'hw-fail': ['no', '✕ Hardware'], 'obstacle-fail': ['no', '✕ Obstacle'], crash: ['no', '✕ Crashed'], incomplete: ['wait', '… Needs 2 clean laps'], pending: ['wait', '… Pending'] };
 const statusPill = s => `<span class="pill ${SP[s][0]}">${SP[s][1]}</span>`;
 function vQuali() {
   const S = st.S, fast = C.fastestLap(S);
@@ -341,7 +341,8 @@ function evalBlock(S, t, e, ch, fast) {
     <div class="lapchips">${lapList(e, id, fast, counts, true)}</div>
     <form class="row nowrap" data-form="lap" ${a} autocomplete="off"><label class="sr" for="li${k}">Lap time in seconds, ${esc(t.name)}, evaluation ${e.n}</label><input id="li${k}" class="mono" data-k="li${k}" value="${dv('li' + k, '')}" inputmode="decimal" enterkeyhint="done" placeholder="seconds, e.g. 12.345" aria-describedby="msg-li${k}"><button class="btn">Add lap</button></form>${msg('li' + k)}
     <div class="grade-grid">
-      ${stepper('Crash-free laps', `${e.dist.toFixed(2)}<span class="muted">/2</span>`, 'dist', a, e.dist > 0, e.dist < 2, 'ds' + k, 'in a row')}
+      <div class="stepper"><label class="flbl" for="ds${k}">Crash-free laps<span class="muted small"> in a row</span></label><div class="st-row">
+        <select id="ds${k}" class="dist-sel mono" data-k="ds${k}" data-change="evdist" ${a}>${[0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(v => `<option value="${v}" ${v === e.dist ? 'selected' : ''}>${v} of 2${v === 2 ? ' (full)' : ''}</option>`).join('')}</select></div></div>
       ${stepper('Scrapes', e.scrapes, 'bump', `${a} data-f="scrapes"`, e.scrapes > 0, true, 'sc' + k, '2 free, then −5%')}
       ${stepper('Crashes', e.crashes, 'bump', `${a} data-f="crashes"`, e.crashes > 0, true, 'cr' + k, '−10% each')}
     </div>
@@ -369,11 +370,11 @@ function teamCard(S, t, fast) {
 /* ---------------- BRACKET ---------------- */
 function vBracket() {
   const S = st.S, b = S.bracket, seeds = C.seedOrder(S), out = C.qualiOrder(S).filter(id => !C.advances(S, id));
-  const reason = { 'hw-fail': 'hardware not compliant', 'obstacle-fail': 'failed obstacle avoidance', pending: '' };
+  const reason = { 'hw-fail': 'hardware not compliant', 'obstacle-fail': 'failed obstacle avoidance', crash: 'chosen evaluation has a crash', incomplete: 'chosen evaluation has fewer than 2 crash-free laps', pending: '' };
   const pendWhy = id => { const t = C.team(S, id), q = C.Q(S, id); return [q.obstacle === 'pending' && 'obstacle pending', C.best(S, id) == null && 'no timed lap'].filter(Boolean).join(', '); };
   const changed = b && JSON.stringify(b.seeds) !== JSON.stringify(seeds);
   const anyRes = b?.matches.some(m => m.status !== 'pending');
-  const seedsHtml = `<section class="panel"><h3>Who advances</h3><p class="small muted">Seeded by best lap in each team's chosen evaluation. A team needs to pass obstacle avoidance, not fail the hardware check, and have a timed lap.</p>
+  const seedsHtml = `<section class="panel"><h3>Who advances</h3><p class="small muted">Seeded by best lap in each team's chosen evaluation. A team needs to pass obstacle avoidance, not fail the hardware check, and its chosen evaluation must have 2 crash-free laps in a row with no crashes.</p>
     ${seeds.length ? `<ol class="seedlist">${seeds.map((id, i) => `<li><span class="seed mono">${i + 1}</span><span class="nm">${esc(C.tname(S, id))}</span><span class="mono">${C.fmtTime(C.best(S, id))}</span></li>`).join('')}</ol>` : '<p class="empty">No team qualifies yet.</p>'}
     ${out.length ? `<h3 class="sub">Not advancing</h3><ul class="outlist">${out.map(id => `<li><span class="nm">${esc(C.tname(S, id))}</span>${statusPill(C.qualiStatus(S, id))}<span class="small muted">${esc(reason[C.qualiStatus(S, id)] || pendWhy(id))}</span></li>`).join('')}</ul>` : ''}</section>`;
   const actions = !b
@@ -551,6 +552,7 @@ const CHANGE = {
     if (!(v >= 0 && v < 1)) { el.value = ''; return toast('Partial lap must be between 0 and 0.99.', true); }
     run(S => { mustMatch(S, el.dataset.mid); return A.setFrac(S, el.dataset.mid, +el.dataset.i, v); });
   },
+  evdist: el => run(S => { mustTeam(S, el.dataset.id); return A.setDistance(S, el.dataset.id, +el.value, el.dataset.eid); }),
   note: el => run(S => { mustMatch(S, el.dataset.mid); return A.setNote(S, el.dataset.mid, el.value.trim()); }),
 };
 

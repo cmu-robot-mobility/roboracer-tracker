@@ -32,7 +32,7 @@ function heatState(m) {
 const readyMatches = S => S.bracket ? S.bracket.matches.filter(m => m.status === 'pending' && m.id !== S.bracket.liveId && C.entrants(S, m).every(Boolean)) : [];
 const STATUS = {
   advances: ['ok', 'Advances'], 'hw-fail': ['no', 'Fails hardware'],
-  'obstacle-fail': ['no', 'Obstacle fail'], pending: ['wait', 'Pending'],
+  'obstacle-fail': ['no', 'Obstacle fail'], crash: ['no', 'Crashed'], incomplete: ['wait', 'Needs 2 clean laps'], pending: ['wait', 'Pending'],
 };
 function clockText(rem, running) {
   // Count down like a race clock: whole seconds rounded up, tenths in the last 10 s.

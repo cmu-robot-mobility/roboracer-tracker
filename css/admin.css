@@ -290,3 +290,4 @@ a.btn{text-decoration:none}
 .ev-sum{margin-right:auto;color:var(--muted)}
 .ev-foot{display:flex;justify-content:flex-end}
 .tc-ev{font-weight:400}
+.dist-sel{min-height:44px;font-size:16px;width:100%;max-width:12em}

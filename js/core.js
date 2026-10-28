@@ -46,10 +46,21 @@ export function best(S, id) { return evalBest(chosenEval(S, id)); }
 export function fastestLap(S) { const v = S.teams.map(t => best(S, t.id)).filter(x => x != null); return v.length ? Math.min(...v) : null; }
 // Grade: baseline = consecutive crash-free distance / 2 laps; −5% per scrape beyond two; −10% per crash.
 export function grade(S, id) { return evalGrade(chosenEval(S, id)); }
-// Advances: obstacle avoidance passed, not failed on hardware, and a timed lap in the chosen evaluation.
-export function advances(S, id) { const t = team(S, id); return !!t && t.hw !== false && Q(S, id).obstacle === 'pass' && best(S, id) != null; }
-/** Status for display: 'advances' | 'hw-fail' | 'obstacle-fail' | 'pending' */
-export function qualiStatus(S, id) { const t = team(S, id), q = Q(S, id); return advances(S, id) ? 'advances' : t?.hw === false ? 'hw-fail' : q.obstacle === 'fail' ? 'obstacle-fail' : 'pending'; }
+/** The chosen evaluation has two crash-free laps in a row and no crashes. */
+export function cleanRun(S, id) { const e = chosenEval(S, id); return !!e && e.dist >= 2 && e.crashes === 0; }
+// Advances: obstacle avoidance passed, hardware not failed, and the chosen evaluation is a clean
+// two-lap run (no crashes) with a timed lap for seeding.
+export function advances(S, id) { const t = team(S, id); return !!t && t.hw !== false && Q(S, id).obstacle === 'pass' && cleanRun(S, id) && best(S, id) != null; }
+/** Status for display: 'advances' | 'hw-fail' | 'obstacle-fail' | 'crash' | 'incomplete' | 'pending' */
+export function qualiStatus(S, id) {
+  const t = team(S, id), q = Q(S, id), e = chosenEval(S, id);
+  if (advances(S, id)) return 'advances';
+  if (t?.hw === false) return 'hw-fail';
+  if (q.obstacle === 'fail') return 'obstacle-fail';
+  if (e?.crashes > 0) return 'crash';
+  if (e && (e.dist < 2 || best(S, id) == null) && (e.laps.length || e.dist || e.scrapes)) return 'incomplete';
+  return 'pending';
+}
 /** All team ids, fastest best lap first; teams with no time at the end, alphabetical. */
 export function qualiOrder(S) {
   return S.teams.map(t => t.id).sort((a, b) => {
