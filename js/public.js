@@ -334,7 +334,7 @@ function fates(S) {
     } else {
       const lost = ms.find(m => m.id !== 'THIRD' && C.entrants(S, m)[1 - m.winner] === id);
       if (lost && lost.round === 'Semifinal') { rank = 50; fate = 'Semifinalist · racing for 3rd'; }
-      else if (lost) { rank = 1000 - depth(lost.round) * 10; fate = `Out in ${lost.round === 'Play-in' ? 'play-in' : lost.round.toLowerCase()}`; }
+      else if (lost) { rank = lost.round === 'Play-in' ? 1000 - Number(lost.id.slice(1)) : 1000 - depth(lost.round) * 10; fate = `Out in ${lost.round === 'Play-in' ? 'play-in' : lost.round.toLowerCase()}`; }
       else { rank = 10; fate = 'Still racing'; }
     }
     out.push({ id, rank, fate, seed, w, l, best: C.best(S, id), place: i >= 0 ? i + 1 : null });

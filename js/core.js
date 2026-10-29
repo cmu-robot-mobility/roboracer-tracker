@@ -76,19 +76,23 @@ function stdOrder(x) { let o = [1]; while (o.length < x) { const k = o.length * 
 function roundName(n) { return n === 2 ? 'Final' : n === 4 ? 'Semifinal' : n === 8 ? 'Quarterfinal' : `Round of ${n}`; }
 function newMatch(id, round, label, src) { return { id, round, label, src, laps: [0, 0], frac: [0, 0], dq: [false, false], status: 'pending', timer: { acc: 0, start: null }, winner: null, note: '' }; }
 /**
- * Seeds 1..x where x = largest power of two ≤ n. The slowest 2(n−x) teams race play-ins
- * for the bottom bracket spots (rulebook: 5 teams → seeds 4 v 5 play in for seed 4).
+ * Seeds 1..x where x = largest power of two ≤ n. Seeds 1..x−1 go straight into the main
+ * bracket; seed x's spot goes to the winner of a play-in ladder among seeds x..n, starting
+ * from the bottom: (n−1 v n), winner v n−2, … winner v x (10 teams → 9 v 10, winner v 8).
+ * Rulebook: 5 teams → seeds 4 v 5 play in for seed 4.
  * Main bracket pairs 1 v x, 2 v x−1, … A 3rd place match decides extra credit for 3rd/4th.
  */
 export function buildBracket(seeds) {
   const n = seeds.length; if (n < 2) return null;
   let x = 1; while (x * 2 <= n) x *= 2;
   const p = n - x, matches = [], slotSrc = {};
-  for (let s = 1; s <= x - p; s++) slotSrc[s] = { seed: s };
-  for (let i = 0; i < p; i++) {
-    const a = x - p + 1 + i, b = n - i, id = 'P' + (i + 1);
-    matches.push(newMatch(id, 'Play-in', `Play-in for seed ${a}`, [{ seed: a }, { seed: b }])); slotSrc[a] = { w: id };
+  for (let s = 1; s <= x; s++) slotSrc[s] = { seed: s };
+  let up = { seed: n };
+  for (let i = 1; i <= p; i++) {
+    const id = 'P' + i, last = i === p;
+    matches.push(newMatch(id, 'Play-in', last ? `Play-in for seed ${x}` : `Play-in ${i}`, [{ seed: n - i }, up])); up = { w: id };
   }
+  slotSrc[x] = up;
   let prev = stdOrder(x).map(s => slotSrc[s]), size = x, r = 1;
   while (size >= 2) {
     const next = [], rn = roundName(size);
