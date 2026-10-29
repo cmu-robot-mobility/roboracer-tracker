@@ -366,3 +366,4 @@ a{color:var(--accent)}
   .bm-r .nm{font-size:16px}
   .bm-r{min-height:44px}
 }
+.lap-line{letter-spacing:.08em;text-transform:none;font-family:var(--mono)}

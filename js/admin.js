@@ -257,12 +257,18 @@ function teamPanel(S, m, e, i) {
     ${m.dq[i] ? '<p class="dq-flag">✕ Disqualified</p>' : ''}
     <button type="button" class="lapbtn${locked ? ' locked' : ''}" style="--ld:${locked ? left - LAP_LOCK : 0}ms" data-act="lap" data-i="${i}" data-mid="${m.id}" data-k="lap${i}" ${done || !e[i] ? 'disabled' : ''} aria-label="Add one lap for ${esc(name)}"><span class="lb-plus">+1</span><span class="lb-word">LAP</span></button>
     <p class="tp-hint small">${hint}</p>
+    ${raceLapList(m, i)}
     <div class="tp-tools">
       <button type="button" class="btn minus" data-act="unlap" data-i="${i}" data-mid="${m.id}" data-k="unlap${i}" ${done || !m.laps[i] ? 'disabled' : ''} aria-label="Remove one lap for ${esc(name)}">−1 lap</button>
       <label class="frac"><span>Partial lap</span><input type="number" inputmode="decimal" min="0" max="0.99" step="0.05" placeholder="0.00" value="${dv(fk, m.frac[i] || '')}" data-change="frac" data-mid="${m.id}" data-i="${i}" data-k="${fk}" ${done ? 'disabled' : ''} aria-label="Partial lap distance for ${esc(name)}, 0 to 0.99"></label>
       ${cbtn({ key: `dq${m.id}${i}`, label: m.dq[i] ? 'Lift DQ' : 'DQ', confirm: m.dq[i] ? 'Lift DQ?' : 'Confirm DQ', act: 'dq', cls: 'btn danger dqbtn', attrs: `data-mid="${m.id}" data-i="${i}" data-on="${m.dq[i] ? 0 : 1}" aria-label="${m.dq[i] ? 'Lift disqualification' : 'Disqualify'} ${esc(name)}"`, disabled: done || !e[i] })}
     </div>
   </section>`;
+}
+function raceLapList(m, i) {
+  const L = C.lapTimes(m, i); if (!L.length) return '';
+  const best = Math.min(...L.map(l => l.t));
+  return `<details class="laplist"${L.length <= 12 ? ' open' : ''}><summary class="small">Lap times (s) · best <b class="mono">${C.fmtTime(best)}</b></summary><ol class="mono small">${L.map(l => `<li${l.t === best ? ' class="best"' : ''}><span class="muted">${l.n}</span> ${C.fmtTime(l.t)}</li>`).join('')}</ol></details>`;
 }
 function teamMini(S, m, e, i) {
   return `<section class="tp-mini" aria-label="${esc(nm(S, m, e, i))}, counted on another device"><span class="tp-slot" aria-hidden="true">${'AB'[i]}</span><span class="tp-name">${esc(nm(S, m, e, i))}${m.dq[i] ? ' <span class="pill no">DQ</span>' : ''}</span><span class="mono mini-laps">${dist(m, i)}</span><span class="small muted mini-note">laps · counted on another device</span></section>`;

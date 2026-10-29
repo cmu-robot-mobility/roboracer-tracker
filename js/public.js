@@ -54,6 +54,10 @@ function setHTML(el, html) {
 
 /* ---------- LIVE ---------- */
 const rule = S => C.targetLaps(S) ? `first to ${C.targetLaps(S)} laps` : 'most laps wins';
+function lapLine(m, i) {
+  const L = C.lapTimes(m, i); if (!L.length) return '';
+  return `<span class="laps-u lap-line">Last ${fmtTime(L.at(-1).t)} · Best ${fmtTime(Math.min(...L.map(l => l.t)))}</span>`;
+}
 function laneHTML(S, m, i, e, opts) {
   const id = e[i], d = C.distance(m, i), seed = id ? C.seedOf(S, id) : null;
   const cls = ['lane'], tags = [];
@@ -74,6 +78,7 @@ function laneHTML(S, m, i, e, opts) {
       <span class="laps-n" aria-hidden="true">${whole}${frac ? `<small>.${String(frac).padStart(2, '0')}</small>` : ''}</span>
       <span class="laps-u" aria-hidden="true">${C.targetLaps(S) ? `of ${C.targetLaps(S)}` : whole === 1 && !frac ? 'lap' : 'laps'}</span>
       ${C.finishedAt(m, i) != null ? `<span class="laps-u">Finished ${fmtClock(C.finishedAt(m, i))}</span>` : ''}
+      ${lapLine(m, i)}
     </div>
   </div>`;
 }

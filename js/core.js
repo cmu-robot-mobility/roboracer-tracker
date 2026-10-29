@@ -76,7 +76,7 @@ export const seedOrder = S => qualiOrder(S).filter(id => advances(S, id));
 /* ---------- bracket ---------- */
 function stdOrder(x) { let o = [1]; while (o.length < x) { const k = o.length * 2; o = o.flatMap(s => [s, k + 1 - s]); } return o; }
 function roundName(n) { return n === 2 ? 'Final' : n === 4 ? 'Semifinal' : n === 8 ? 'Quarterfinal' : `Round of ${n}`; }
-function newMatch(id, round, label, src) { return { id, round, label, src, laps: [0, 0], frac: [0, 0], dq: [false, false], at: [null, null], status: 'pending', timer: { acc: 0, start: null }, winner: null, note: '' }; }
+function newMatch(id, round, label, src) { return { id, round, label, src, laps: [0, 0], frac: [0, 0], dq: [false, false], at: [null, null], lapAt: { 0: [], 1: [] }, status: 'pending', timer: { acc: 0, start: null }, winner: null, note: '' }; }
 /**
  * Seeds 1..x where x = largest power of two ≤ n. Seeds 1..x−1 go straight into the main
  * bracket; seed x's spot goes to the winner of a play-in ladder among seeds x..n, starting
@@ -137,6 +137,17 @@ export const nowMs = () => Date.now() + skewMs;
 export function elapsed(m, now = nowMs()) { return m.timer.acc + (m.timer.start ? (now - m.timer.start) / 1000 : 0); }
 export const remaining = (S, m, now) => Math.max(0, heatLength(S) - elapsed(m, now));
 export const distance = (m, i) => m.laps[i] + m.frac[i];
+/**
+ * Race clock time (s) of each counted lap for team i, e.g. [24.1, 47.9, …]. Stored as a map
+ * {0: [...], 1: [...]} because Firestore can't hold arrays inside arrays. Laps counted
+ * before lap times were recorded have no entry, so this can be shorter than m.laps[i].
+ */
+export const lapClock = (m, i) => m.lapAt?.[i] || [];
+/** Individual lap durations (s) for team i: [{n, t}] with n = lap number. */
+export function lapTimes(m, i) {
+  const c = lapClock(m, i), off = m.laps[i] - c.length;
+  return c.map((x, k) => ({ n: off + k + 1, t: k || !off ? Math.round((x - (k ? c[k - 1] : 0)) * 1000) / 1000 : null })).filter(l => l.t != null);
+}
 /** Race time (s) at which team i completed the target laps, or null. */
 export const finishedAt = (m, i) => m.at?.[i] ?? null;
 // Winner: DQ, then first to finish the target laps, then (time limit reached) most laps,
@@ -239,13 +250,17 @@ export const A = {
   /** Count a lap. `now` is the tap time. Reaching the target laps finishes the race. */
   lap: (S, mid, i, delta, now = nowMs()) => {
     const m = match(S, mid), T = targetLaps(S), who = tname(S, entrants(S, m)[i]);
-    m.laps[i] = Math.max(0, m.laps[i] + delta); m.at ||= [null, null];
+    const before = m.laps[i]; m.laps[i] = Math.max(0, m.laps[i] + delta); m.at ||= [null, null];
+    m.lapAt ||= { 0: [], 1: [] }; m.lapAt[i] ||= [];
+    if (m.laps[i] > before) m.lapAt[i].push(Math.round(elapsed(m, now) * 1000) / 1000);
+    else if (m.laps[i] < before) m.lapAt[i] = m.lapAt[i].slice(0, Math.max(0, m.lapAt[i].length - (before - m.laps[i])));
     if (T && m.laps[i] < T) m.at[i] = null;
     if (delta > 0 && T && m.laps[i] >= T && m.at[i] == null && !m.dq[i] && m.status !== 'done') {
-      m.at[i] = Math.round(elapsed(m, now) * 1000) / 1000;
+      m.at[i] = m.lapAt[i][m.lapAt[i].length - 1];
       return `${who} completes lap ${m.laps[i]} in ${fmtTime(m.at[i])}. ` + A.finish(S, mid, now);
     }
-    return delta > 0 ? `${who} completes lap ${m.laps[i]}` : null;
+    const lt = lapTimes(m, i).at(-1);
+    return delta > 0 ? `${who} completes lap ${m.laps[i]}${lt && lt.n === m.laps[i] ? ` (${fmtTime(lt.t)} s)` : ''}` : null;
   },
   setFrac: (S, mid, i, v) => { match(S, mid).frac[i] = Math.min(0.99, Math.max(0, +v || 0)); return null; },
   setDq: (S, mid, i, on) => { const m = match(S, mid); m.dq[i] = on; return on ? `${tname(S, entrants(S, m)[i])} disqualified in ${m.label}` : null; },
@@ -257,7 +272,7 @@ export const A = {
   },
   reopen: (S, mid) => { const m = match(S, mid); m.status = 'live'; m.winner = null; m.doneAt = null; S.bracket.liveId = mid; return `${m.label} reopened`; },
   setWinner: (S, mid, i) => { const m = match(S, mid); m.winner = i; m.status = 'done'; m.doneAt ||= nowMs(); return `${m.label}: result set to ${tname(S, entrants(S, m)[i])}`; },
-  resetHeat: (S, mid) => { const m = match(S, mid); Object.assign(m, { laps: [0, 0], frac: [0, 0], dq: [false, false], at: [null, null], status: 'pending', timer: { acc: 0, start: null }, winner: null, doneAt: null }); return `${m.label} reset`; },
+  resetHeat: (S, mid) => { const m = match(S, mid); Object.assign(m, { laps: [0, 0], frac: [0, 0], dq: [false, false], at: [null, null], lapAt: { 0: [], 1: [] }, status: 'pending', timer: { acc: 0, start: null }, winner: null, doneAt: null }); return `${m.label} reset`; },
   setEvent: (S, patch) => { Object.assign(S.event, patch); return null; },
   post: (S, msg) => msg, // free-text announcement to the feed
 };
