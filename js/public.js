@@ -53,6 +53,7 @@ function setHTML(el, html) {
 }
 
 /* ---------- LIVE ---------- */
+const rule = S => C.targetLaps(S) ? `first to ${C.targetLaps(S)} laps` : 'most laps wins';
 function laneHTML(S, m, i, e, opts) {
   const id = e[i], d = C.distance(m, i), seed = id ? C.seedOf(S, id) : null;
   const cls = ['lane'], tags = [];
@@ -71,7 +72,8 @@ function laneHTML(S, m, i, e, opts) {
     <div class="lane-tags">${tags.join('')}</div>
     <div class="lane-laps" data-key="${esc(m.id)}:${i}" data-d="${d}" aria-label="${esc(fmtDist(d))} laps">
       <span class="laps-n" aria-hidden="true">${whole}${frac ? `<small>.${String(frac).padStart(2, '0')}</small>` : ''}</span>
-      <span class="laps-u" aria-hidden="true">${whole === 1 && !frac ? 'lap' : 'laps'}</span>
+      <span class="laps-u" aria-hidden="true">${C.targetLaps(S) ? `of ${C.targetLaps(S)}` : whole === 1 && !frac ? 'lap' : 'laps'}</span>
+      ${C.finishedAt(m, i) != null ? `<span class="laps-u">Finished ${fmtClock(C.finishedAt(m, i))}</span>` : ''}
     </div>
   </div>`;
 }
@@ -130,7 +132,7 @@ function heroNext(S, m) {
     </div>
     <div class="heat">
       ${laneHTML(S, m, 0, e, {})}
-      <div class="clockbox"><div class="clock vs">VS</div><div class="clock-sub">${fmtClock(C.heatLength(S))} race · most laps wins</div></div>
+      <div class="clockbox"><div class="clock vs">VS</div><div class="clock-sub">${fmtClock(C.heatLength(S))} race · ${rule(S)}</div></div>
       ${laneHTML(S, m, 1, e, {})}
     </div>
     ${upNextList(S, m)}
@@ -287,11 +289,11 @@ function renderBracket(S) {
   const el = $('bracket'), sub = $('bracketSub');
   if (!S.bracket) {
     sub.textContent = '';
-    setHTML(el, empty('No bracket yet', `The bracket is made after qualifying. Teams that advance are seeded by best lap, and each race lasts ${Math.round(C.heatLength(S) / 6) / 10} minutes.`));
+    setHTML(el, empty('No bracket yet', `The bracket is made after qualifying. Teams that advance are seeded by best lap, and each race lasts up to ${Math.round(C.heatLength(S) / 6) / 10} minutes${C.targetLaps(S) ? `. The first team to finish ${C.targetLaps(S)} laps wins` : ''}.`));
     return;
   }
   const rs = C.rounds(S), nm = C.nextMatch(S), nextId = nm?.id;
-  sub.textContent = `${S.bracket.seeds.length} teams · ${fmtClock(C.heatLength(S))} races · most laps wins`;
+  sub.textContent = `${S.bracket.seeds.length} teams · ${fmtClock(C.heatLength(S))} races · ${rule(S)}`;
   const play = rs.find(r => r.name === 'Play-in'), third = rs.find(r => r.name === '3rd place');
   const main = rs.filter(r => r !== play && r !== third);
   const fin = S.bracket.matches.find(m => m.round === 'Final');

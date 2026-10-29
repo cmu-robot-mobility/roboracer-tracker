@@ -252,7 +252,8 @@ function teamPanel(S, m, e, i) {
   const fk = `frac${m.id}${i}`;
   return `<section class="tp${m.dq[i] ? ' is-dq' : ''}${win ? ' is-win' : ''}${done && !win ? ' is-lose' : ''}" aria-labelledby="tpn${i}">
     <header class="tp-h"><span class="tp-slot" aria-hidden="true">${'AB'[i]}</span><div class="tp-id"><h3 id="tpn${i}" class="tp-name">${esc(name)}</h3><span class="small muted">${seed ? 'Seed ' + seed : ''}</span></div>${win ? '<span class="pill ok">✓ Winner</span>' : ''}</header>
-    <div class="tp-count" aria-label="${m.laps[i]} laps${m.frac[i] ? ' plus ' + m.frac[i].toFixed(2) : ''}"><span class="tp-laps mono">${m.laps[i]}</span><span class="tp-unit">${m.laps[i] === 1 ? 'lap' : 'laps'}${m.frac[i] ? `<span class="mono tp-frac">+${m.frac[i].toFixed(2)}</span>` : ''}</span></div>
+    <div class="tp-count" aria-label="${m.laps[i]} laps${m.frac[i] ? ' plus ' + m.frac[i].toFixed(2) : ''}"><span class="tp-laps mono">${m.laps[i]}</span><span class="tp-unit">${C.targetLaps(S) ? `of ${C.targetLaps(S)} laps` : m.laps[i] === 1 ? 'lap' : 'laps'}${m.frac[i] ? `<span class="mono tp-frac">+${m.frac[i].toFixed(2)}</span>` : ''}</span></div>
+    ${C.finishedAt(m, i) != null ? `<p class="small"><b>Finished in <span class="mono">${C.fmtTime(C.finishedAt(m, i))}</span></b></p>` : ''}
     ${m.dq[i] ? '<p class="dq-flag">✕ Disqualified</p>' : ''}
     <button type="button" class="lapbtn${locked ? ' locked' : ''}" style="--ld:${locked ? left - LAP_LOCK : 0}ms" data-act="lap" data-i="${i}" data-mid="${m.id}" data-k="lap${i}" ${done || !e[i] ? 'disabled' : ''} aria-label="Add one lap for ${esc(name)}"><span class="lb-plus">+1</span><span class="lb-word">LAP</span></button>
     <p class="tp-hint small">${hint}</p>
@@ -266,7 +267,7 @@ function teamPanel(S, m, e, i) {
 function teamMini(S, m, e, i) {
   return `<section class="tp-mini" aria-label="${esc(nm(S, m, e, i))}, counted on another device"><span class="tp-slot" aria-hidden="true">${'AB'[i]}</span><span class="tp-name">${esc(nm(S, m, e, i))}${m.dq[i] ? ' <span class="pill no">DQ</span>' : ''}</span><span class="mono mini-laps">${dist(m, i)}</span><span class="small muted mini-note">laps · counted on another device</span></section>`;
 }
-function why(m) { return m.dq[0] !== m.dq[1] ? 'opponent DQ' : m.laps[0] !== m.laps[1] ? 'more laps' : m.frac[0] !== m.frac[1] ? 'partial-lap tiebreak' : 'tie, better seed'; }
+function why(m) { return m.dq[0] !== m.dq[1] ? 'opponent DQ' : C.finishedAt(m, 0) != null || C.finishedAt(m, 1) != null ? 'finished first' : m.laps[0] !== m.laps[1] ? 'more laps' : m.frac[0] !== m.frac[1] ? 'partial-lap tiebreak' : 'tie, better seed'; }
 function heatEnd(S, m, e) {
   const nk = 'note' + m.id;
   const note = `<div class="field"><label for="${nk}">Race note <span class="muted small">(shown publicly)</span></label><input id="${nk}" data-k="${nk}" value="${dv(nk, m.note)}" data-change="note" data-mid="${m.id}" maxlength="160" placeholder="e.g. restarted after a collision at 2:10" autocomplete="off"></div>`;
@@ -276,7 +277,7 @@ function heatEnd(S, m, e) {
     const w = ready ? C.autoWinner(S, m) : 0;
     const proj = ready ? `${C.tname(S, e[w])} wins ${dist(m, w)} – ${dist(m, 1 - w)} (${why(m)})` : '';
     return `<section class="panel end"><h3>Finish</h3>
-      <p class="small">The winner is decided by DQ, then most laps, then partial lap, then better qualifying seed.${ready ? ` If you finish now: <b>${esc(proj)}</b>` : ''}</p>
+      <p class="small">${C.targetLaps(S) ? `The first team to finish ${C.targetLaps(S)} laps wins, and the race ends by itself when they do. If time runs out first, the winner is decided by DQ, then most laps, then partial lap, then better qualifying seed.` : 'The winner is decided by DQ, then most laps, then partial lap, then better qualifying seed.'}${ready ? ` If you finish now: <b>${esc(proj)}</b>` : ''}</p>
       ${cbtn({ key: 'fin' + m.id, label: `${svg('flag')} Finish &amp; score`, confirm: `Confirm: ${esc(proj)}`, act: 'finish', cls: 'btn finbtn', attrs: `data-mid="${m.id}"`, disabled: !ready })}
       ${note}<div class="row end-tools">${reset}</div></section>`;
   }
@@ -410,6 +411,7 @@ function vSettings() {
     <div class="field"><label for="ev-name">Course name</label><input id="ev-name" data-k="ev-name" value="${dv('ev-name', ev.name)}" maxlength="80"></div>
     <div class="field"><label for="ev-season">Season label</label><input id="ev-season" data-k="ev-season" value="${dv('ev-season', ev.season)}" maxlength="40"></div>
     <div class="field"><label for="ev-heat">Race length (minutes)</label><input id="ev-heat" type="number" inputmode="decimal" min="0.5" max="60" step="0.5" data-k="ev-heat" value="${dv('ev-heat', C.heatLength(S) / 60)}"></div>
+    <div class="field"><label for="ev-target">Laps to win <span class="muted small">(0 = most laps when time runs out)</span></label><input id="ev-target" type="number" inputmode="numeric" min="0" max="100" step="1" data-k="ev-target" value="${dv('ev-target', C.targetLaps(S))}"></div>
     <button class="btn pri">Save event settings</button>${msg('ev')}</form>`;
   const taP = `<section class="panel stack"><h3>TA list</h3><p class="small muted">Everyone on this list can change anything here. Use the email of their Google account. You can’t remove yourself.</p>
     <ul class="list">${admins.map(a => `<li><span class="email">${esc(a)}</span>${a === me ? '<span class="pill">You</span>' : cbtn({ key: 'ra' + a, label: 'Remove', confirm: 'Tap again to remove', act: 'rmadmin', cls: 'btn sm danger', attrs: `data-email="${esc(a)}" aria-label="Remove ${esc(a)}"` })}</li>`).join('') || '<li class="muted">No TAs listed.</li>'}</ul>
@@ -433,11 +435,11 @@ const ACT = {
   side: d => { st.side = d.v; LS.set('rc-admin-side', d.v); render(); },
   theme: d => { st.theme = d.v; LS.set('rc-admin-theme', d.v); if (d.v === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = d.v; render(); },
   lap(d) {
-    const i = +d.i, now = Date.now();
+    const i = +d.i, now = Date.now(), tap = C.nowMs();
     if (now < st.lock[i]) { vib(8); return; } // double-tap guard
     st.lock[i] = now + LAP_LOCK; st.pend[i]++; vib(35);
     setTimeout(render, LAP_LOCK + 20);
-    run(S => { const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('This race is finished. Reopen it to change laps.'); return A.lap(S, d.mid, i, 1); })
+    run(S => { const m = mustMatch(S, d.mid); if (m.status === 'done') throw new Error('This race is finished. Reopen it to change laps.'); return A.lap(S, d.mid, i, 1, tap); })
       .finally(() => { st.pend[i]--; render(); });
     render();
   },
@@ -529,8 +531,10 @@ const FORM = {
   event(f) {
     const v = id => f.querySelector('#' + id).value.trim(), min = parseFloat(v('ev-heat'));
     if (!(min >= 0.5 && min <= 60)) return setMsg('ev', 'Race length must be between 0.5 and 60 minutes.', 'bad');
-    const patch = { name: v('ev-name'), season: v('ev-season'), heat: Math.round(min * 60) };
-    const sid = st.sid; run(S => A.setEvent(S, patch)).then(ok => { if (ok) { store.relabelSeason(sid, patch.name, patch.season).catch(() => {}); clearDrafts('ev-name', 'ev-season', 'ev-heat'); setMsg('ev', '✓ Saved', 'ok'); } });
+    const target = +v('ev-target');
+    if (!(Number.isInteger(target) && target >= 0 && target <= 100)) return setMsg('ev', 'Laps to win must be a whole number from 0 to 100.', 'bad');
+    const patch = { name: v('ev-name'), season: v('ev-season'), heat: Math.round(min * 60), target };
+    const sid = st.sid; run(S => A.setEvent(S, patch)).then(ok => { if (ok) { store.relabelSeason(sid, patch.name, patch.season).catch(() => {}); clearDrafts('ev-name', 'ev-season', 'ev-heat', 'ev-target'); setMsg('ev', '✓ Saved', 'ok'); } });
   },
   addadmin(f) {
     const inp = f.querySelector('input'), e = inp.value.trim().toLowerCase(), admins = st.auth.admins || [];
