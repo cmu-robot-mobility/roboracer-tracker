@@ -131,11 +131,29 @@ export function buildDouble(b) {
   add('L3', 'Losers round 3', 'Losers round 3', [{ w: 'L2M1' }, { w: 'L2M2' }]);
   add('LF', 'Losers final', 'Losers final', [{ l: 'WF' }, { w: 'L3' }]);
   add('GF', 'Final', 'Grand final', [{ w: 'WF' }, { w: 'LF' }]);
+  addReset(matches);
   // Running order: losers-bracket races go first whenever they're ready; winners-bracket races
   // run only when the losers bracket is waiting on them.
   const lq = matches.filter(m => /^LQ\d/.test(m.id)).map(m => m.id);
-  const order = [...keep.map(m => m.id).filter(id => !id.startsWith('R2')), ...lq, 'LQF', 'L1M1', 'L1M2', 'R2M1', 'R2M2', 'L2M1', 'L2M2', 'L3', 'WF', 'LF', 'GF'];
+  const order = [...keep.map(m => m.id).filter(id => !id.startsWith('R2')), ...lq, 'LQF', 'L1M1', 'L1M2', 'R2M1', 'R2M2', 'L2M1', 'L2M2', 'L3', 'WF', 'LF', 'GF', 'GF2'];
   return { format: 'double', seeds: b.seeds.slice(), x: b.x, matches, order, liveId: keep.some(m => m.id === b.liveId) ? b.liveId : null, createdAt: Date.now() };
+}
+/** Grand final reset: raced only if the losers-bracket team (lane 1) wins the grand final. */
+function addReset(matches) { const m = newMatch('GF2', 'Grand final reset', 'Grand final reset', [{ w: 'WF' }, { w: 'LF' }]); m.reset = 'GF'; matches.push(m); }
+/** Add the grand final reset to double brackets made before it existed. Safe to call on every load. */
+export function upgrade(S) {
+  for (const b of [S?.bracket, S?.altBracket]) {
+    if (b?.format !== 'double' || b.matches.some(m => m.id === 'GF2')) continue;
+    addReset(b.matches); if (b.order && !b.order.includes('GF2')) b.order.push('GF2');
+  }
+  return S;
+}
+/** The reset race isn't needed: the winners-bracket team won the grand final. */
+export const notNeeded = (S, m) => !!m.reset && match(S, m.reset)?.winner === 0;
+/** The race that decides the champion: grand final, or its reset if the losers-bracket team won it. */
+export function finalMatch(S) {
+  const ms = S.bracket?.matches || [], gf = ms.find(m => m.round === 'Final');
+  return isDouble(S) && gf?.winner === 1 ? (match(S, 'GF2') || gf) : gf;
 }
 /** Copy results of races both brackets share (same id and entrants) from `from` into `to`. */
 function syncShared(from, to) {
@@ -153,7 +171,7 @@ export function resolve(S, src) {
   const pair = entrants(S, m); return src.w ? pair[m.winner] : pair[1 - m.winner];
 }
 /** [teamIdA|null, teamIdB|null] */
-export const entrants = (S, m) => m.src.map(s => resolve(S, s));
+export const entrants = (S, m) => m.reset && match(S, m.reset)?.winner !== 1 ? [null, null] : m.src.map(s => resolve(S, s));
 export function seedOf(S, id) { const i = S.bracket?.seeds.indexOf(id) ?? -1; return i >= 0 ? i + 1 : null; }
 /** Human label for an unresolved slot, e.g. "Winner Play-in for seed 4". */
 export function srcLabel(S, s) { if (s.seed) return 'Seed ' + s.seed; const m = match(S, s.w || s.l); return (s.w ? 'Winner ' : 'Loser ') + (m ? m.label : ''); }
@@ -217,7 +235,7 @@ export function lastResult(S) {
 /** Team ids in finishing order, as far as decided (final → 1st/2nd, 3rd place match → 3rd/4th). */
 export function standings(S) {
   if (!S.bracket) return [];
-  const ms = S.bracket.matches, fin = ms.find(m => m.round === 'Final'), th = match(S, 'THIRD'), out = [];
+  const ms = S.bracket.matches, fin = finalMatch(S), th = match(S, 'THIRD'), out = [];
   if (fin?.winner != null) { const e = entrants(S, fin); out.push(e[fin.winner], e[1 - fin.winner]); }
   if (isDouble(S)) { // by place, null = not decided yet: 3rd = losers final loser, 4th = losers round 3 loser
     if (fin?.winner == null) out.push(null, null);

@@ -192,7 +192,7 @@ function renderLive(S) {
   let html;
   if (!S.bracket) html = heroQuali(S);
   else {
-    const lm = C.liveMatch(S), nm = C.nextMatch(S), fin = S.bracket.matches.find(m => m.round === 'Final');
+    const lm = C.liveMatch(S), nm = C.nextMatch(S), fin = C.finalMatch(S);
     if (lm && !(lm.status === 'done' && nm == null && fin?.winner != null)) html = heroMatch(S, lm);
     else if (fin?.winner != null && !nm) html = heroChampion(S, C.standings(S));
     else if (nm) html = heroNext(S, nm);
@@ -271,7 +271,7 @@ function renderQuali(S) {
 /* ---------- BRACKET ---------- */
 function matchCard(S, m, nextId) {
   const e = C.entrants(S, m), live = S.bracket.liveId === m.id && m.status !== 'done';
-  const state = m.status === 'done' ? 'Final' : live ? (m.timer.start ? 'Live' : 'On track') : m.id === nextId ? 'Next up' : '';
+  const state = C.notNeeded(S, m) ? 'Not needed' : m.status === 'done' ? 'Final' : live ? (m.timer.start ? 'Live' : 'On track') : m.id === nextId ? 'Next up' : '';
   const started = m.status !== 'pending' || C.elapsed(m) > 0;
   const ds = [0, 1].map(i => C.distance(m, i)), fmt = ds.every(Number.isInteger) ? String : d => d.toFixed(2);
   const row = i => {
@@ -286,7 +286,7 @@ function matchCard(S, m, nextId) {
   return `<article class="bm ${live ? 'is-live' : ''} ${m.id === nextId && !live ? 'is-next' : ''}" aria-label="${esc(m.label)}${state ? ', ' + state : ''}">
     <div class="bm-h"><span>${esc(m.label)}</span><span class="bm-s">${state}</span></div>
     ${row(0)}${row(1)}
-    ${m.note ? `<div class="bm-note">${esc(m.note)}</div>` : ''}
+    ${m.note ? `<div class="bm-note">${esc(m.note)}</div>` : m.reset && m.status === 'pending' && !C.notNeeded(S, m) ? `<div class="bm-note">${C.match(S, m.reset)?.winner === 1 ? 'Both teams have one loss: this race decides the champion' : 'Raced only if the losers-bracket team wins the grand final'}</div>` : ''}
   </article>`;
 }
 
@@ -327,7 +327,7 @@ function renderBracket(S) {
 
 function renderDouble(S, el, rs, nextId) {
   $('bracketSub').textContent += ' · double elimination';
-  const fin = C.match(S, 'GF'), champId = fin?.winner != null ? C.entrants(S, fin)[fin.winner] : null;
+  const fin = C.finalMatch(S), champId = fin?.winner != null ? C.entrants(S, fin)[fin.winner] : null;
   const card = m => `<div class="bk-slot">${matchCard(S, m, nextId)}</div>`;
   const play = rs.find(r => r.name === 'Play-in'), win = rs.filter(r => !C.isLosersRound(r.name) && r !== play);
   const cols = [];

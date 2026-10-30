@@ -231,6 +231,8 @@ span.lapchip{cursor:default;min-height:36px}
 
 /* ---------- BRACKET ---------- */
 .rounds{display:grid;gap:16px}
+.bk-h{margin:20px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+.bk-h:first-child{margin-top:0}
 .round{display:flex;flex-direction:column;gap:8px}
 .mc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px;display:flex;flex-direction:column;gap:8px}
 .mc header{display:flex;justify-content:space-between;align-items:center;gap:8px}

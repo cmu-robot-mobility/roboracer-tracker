@@ -392,17 +392,22 @@ function vBracket() {
   const dbl = b && (C.isDouble(S) || C.canDouble(b));
   if (dbl) parts.push(['b-fmt', `<section class="panel stack"><h3>Format</h3>${seg('Bracket format', [['single', 'Single elimination', '✓'], ['double', 'Double elimination', '✓']], b.format || 'single', 'fmt')}
     <p class="small muted">${C.isDouble(S) ? 'Losers bracket: the play-in losers race for a spot, that team races the quarterfinal 3 loser, and the other three quarterfinal losers join them. Semifinal and winners-final losers drop in later. The losers-bracket winner races the winners-bracket winner in one grand final.' : 'Double elimination gives every team a second chance in a losers bracket.'} Races both formats share (play-ins, quarterfinals, semifinals) keep their results when you switch, and the public board shows whichever format is on.</p></section>`]);
-  if (b) parts.push(['b-rounds', `<div class="rounds">${C.rounds(S).map(r => `<section class="round"><h3>${esc(r.name)}</h3>${r.matches.map(m => mcard(S, m)).join('')}</section>`).join('')}</div>`]);
+  const roundsHtml = rs => `<div class="rounds">${rs.map(r => `<section class="round"><h3>${esc(r.name === 'Final' && C.isDouble(S) ? 'Grand final' : r.name)}</h3>${r.matches.map(m => mcard(S, m)).join('')}</section>`).join('')}</div>`;
+  if (b && C.isDouble(S)) { // winners bracket (and grand final) on top, losers bracket below
+    const rs = C.rounds(S), lose = rs.filter(r => C.isLosersRound(r.name));
+    parts.push(['b-rounds', `<h3 class="bk-h">Winners bracket</h3>${roundsHtml(rs.filter(r => !lose.includes(r)))}<h3 class="bk-h">Losers bracket</h3>${roundsHtml(lose)}`]);
+  } else if (b) parts.push(['b-rounds', roundsHtml(C.rounds(S))]);
   parts.push(['b-act', actions], ['b-seeds', seedsHtml]);
   return parts;
 }
 function mcard(S, m) {
   const e = C.entrants(S, m), live = S.bracket.liveId === m.id, nx = C.nextMatch(S)?.id === m.id, ready = e[0] && e[1], ph = phase(m);
   const row = i => `<li class="${m.winner === i ? 'w' : m.winner === 1 - i ? 'l' : ''}"><span class="seed mono">${C.seedOf(S, e[i]) ?? ''}</span><span class="nm">${e[i] ? esc(C.tname(S, e[i])) : `<i class="muted">${esc(C.srcLabel(S, m.src[i]))}</i>`}${m.dq[i] ? ' <span class="pill no">DQ</span>' : ''}</span><span class="mono sc">${m.status !== 'pending' || C.distance(m, i) ? dist(m, i) : ''}</span><span class="wi" aria-label="${m.winner === i ? 'winner' : ''}">${m.winner === i ? '✓' : ''}</span></li>`;
-  const pill = live && ph !== 'done' ? (ph === 'running' ? '<span class="pill live">● Running</span>' : '<span class="pill live">On track</span>') : m.status === 'done' ? '<span class="pill ok">✓ Final</span>' : nx ? '<span class="pill wait">Up next</span>' : ready ? '<span class="pill">Ready</span>' : '<span class="pill">Waiting</span>';
+  const pill = C.notNeeded(S, m) ? '<span class="pill">Not needed</span>' : live && ph !== 'done' ? (ph === 'running' ? '<span class="pill live">● Running</span>' : '<span class="pill live">On track</span>') : m.status === 'done' ? '<span class="pill ok">✓ Final</span>' : nx ? '<span class="pill wait">Up next</span>' : ready ? '<span class="pill">Ready</span>' : '<span class="pill">Waiting</span>';
   const btn = live ? `<button type="button" class="btn pri" data-act="tab" data-tab="heat" data-k="open-${m.id}">Open race</button>`
     : m.status === 'done' ? `<button type="button" class="btn" data-act="track" data-mid="${m.id}" data-k="track-${m.id}">Review / edit result</button>`
-      : ready ? `<button type="button" class="btn${nx ? ' pri' : ''}" data-act="track" data-mid="${m.id}" data-k="track-${m.id}">Put on track</button>` : '<button type="button" class="btn" disabled>Waiting for entrants</button>';
+      : ready ? `<button type="button" class="btn${nx ? ' pri' : ''}" data-act="track" data-mid="${m.id}" data-k="track-${m.id}">Put on track</button>`
+        : `<button type="button" class="btn" disabled>${C.notNeeded(S, m) ? 'Not needed: the winners-bracket team won the grand final' : m.reset ? 'Only raced if the losers-bracket team wins the grand final' : 'Waiting for entrants'}</button>`;
   return `<article class="mc${live ? ' is-live' : ''}${nx ? ' is-next' : ''}${m.status === 'done' ? ' is-done' : ''}" aria-label="${esc(m.label)}"><header><span class="mc-l">${esc(m.label)}</span>${pill}</header><ol class="mc-e">${row(0)}${row(1)}</ol>${btn}</article>`;
 }
 

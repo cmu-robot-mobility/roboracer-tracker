@@ -6,7 +6,7 @@
 //   meta/admins   { emails: ["ta@andrew.cmu.edu", ...] }       ← who may write
 //   seasons/{id}  the whole season state (see core.emptySeason)
 import { firebaseConfig } from './firebase-config.js';
-import { emptySeason, setClockSkew } from './core.js';
+import { emptySeason, setClockSkew, upgrade } from './core.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.12.2/';
 const configured = !!(firebaseConfig && firebaseConfig.apiKey);
@@ -46,7 +46,7 @@ function firebaseStore() {
       return () => un();
     },
     watchSeason(id, cb) {
-      let un = () => {}; ready.then(() => { un = fb.fs.onSnapshot(ref('seasons/' + id), s => cb(s.exists() ? s.data() : null), e => cb(null, e)); });
+      let un = () => {}; ready.then(() => { un = fb.fs.onSnapshot(ref('seasons/' + id), s => cb(s.exists() ? upgrade(s.data()) : null), e => cb(null, e)); });
       return () => un();
     },
     /** cb({user: {email, name, photo} | null, isTA, canClaim}) */
@@ -75,7 +75,7 @@ function firebaseStore() {
       await ready;
       await fb.fs.runTransaction(fb.db, async tx => {
         const s = await tx.get(ref('seasons/' + id)); if (!s.exists()) throw new Error('This season no longer exists.');
-        const S = s.data(); const msg = fn(S); withLog(S, msg); tx.set(ref('seasons/' + id), clean(S));
+        const S = upgrade(s.data()); const msg = fn(S); withLog(S, msg); tx.set(ref('seasons/' + id), clean(S));
       });
     },
     async createSeason(name, season) {
@@ -111,11 +111,11 @@ function demoStore() {
     mode: 'demo',
     ready: Promise.resolve(),
     watchConfig: cb => watch(() => cb(clean(db.config))),
-    watchSeason: (id, cb) => watch(() => cb(db.seasons[id] ? clean(db.seasons[id]) : null)),
+    watchSeason: (id, cb) => watch(() => cb(db.seasons[id] ? upgrade(clean(db.seasons[id])) : null)),
     onAuth: cb => watch(() => cb({ user: { email: 'demo@example.com', name: 'Demo TA' }, isTA: true, canClaim: false, admins: db.admins })),
     async signIn() {}, async signOut() {}, async claim() {},
     async setAdmins(emails) { db.admins = emails; emit(); },
-    async mutate(id, fn) { const S = clean(db.seasons[id]); const msg = fn(S); withLog(S, msg); db.seasons[id] = S; emit(); },
+    async mutate(id, fn) { const S = upgrade(clean(db.seasons[id])); const msg = fn(S); withLog(S, msg); db.seasons[id] = S; emit(); },
     async createSeason(name, season) { let id = slug(season || name), n = 2; while (db.seasons[id]) id = slug(season || name) + '-' + n++; const S = emptySeason(name, season); withLog(S, 'New season started'); db.seasons[id] = S; db.config = { current: id, seasons: [...db.config.seasons, { id, label: [season, name].filter(Boolean).join(' · ') }] }; emit(); return id; },
     async setCurrentSeason(id) { db.config.current = id; emit(); },
     async relabelSeason(id, name, season) { db.config.seasons = db.config.seasons.map(s => s.id === id ? { id, label: [season, name].filter(Boolean).join(' · ') } : s); emit(); },
