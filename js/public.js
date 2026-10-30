@@ -29,7 +29,7 @@ function heatState(m) {
   if (C.elapsed(m) > 0) return 'paused';
   return 'staged';
 }
-const readyMatches = S => S.bracket ? S.bracket.matches.filter(m => m.status === 'pending' && m.id !== S.bracket.liveId && C.entrants(S, m).every(Boolean)) : [];
+const readyMatches = S => S.bracket ? C.playOrder(S).filter(m => m.status === 'pending' && m.id !== S.bracket.liveId && C.entrants(S, m).every(Boolean)) : [];
 const STATUS = {
   advances: ['ok', 'Advances'], 'hw-fail': ['no', 'Fails hardware'],
   'obstacle-fail': ['no', 'Obstacle fail'], crash: ['no', 'Crashed'], incomplete: ['wait', 'Needs 2 clean laps'], pending: ['wait', 'Pending'],
@@ -299,6 +299,7 @@ function renderBracket(S) {
   }
   const rs = C.rounds(S), nm = C.nextMatch(S), nextId = nm?.id;
   sub.textContent = `${S.bracket.seeds.length} teams · ${fmtClock(C.heatLength(S))} races · ${rule(S)}`;
+  if (C.isDouble(S)) return renderDouble(S, el, rs, nextId);
   const play = rs.find(r => r.name === 'Play-in'), third = rs.find(r => r.name === '3rd place');
   const main = rs.filter(r => r !== play && r !== third);
   const fin = S.bracket.matches.find(m => m.round === 'Final');
@@ -324,6 +325,36 @@ function renderBracket(S) {
     </div>`);
 }
 
+function renderDouble(S, el, rs, nextId) {
+  $('bracketSub').textContent += ' · double elimination';
+  const fin = C.match(S, 'GF'), champId = fin?.winner != null ? C.entrants(S, fin)[fin.winner] : null;
+  const card = m => `<div class="bk-slot">${matchCard(S, m, nextId)}</div>`;
+  const play = rs.find(r => r.name === 'Play-in'), win = rs.filter(r => !C.isLosersRound(r.name) && r !== play);
+  const cols = [];
+  if (play) cols.push(`<div class="bk-col side"><h3>Play-in</h3><div class="bk-body">${play.matches.map(m => matchCard(S, m, nextId)).join('')}</div></div>`);
+  win.forEach((r, ci) => {
+    const pairs = r.matches.length > 1, hasPrev = ci > 0;
+    let body = '';
+    if (pairs) for (let i = 0; i < r.matches.length; i += 2) body += `<div class="bk-pair">${r.matches.slice(i, i + 2).map(card).join('')}</div>`;
+    else body = r.matches.map(card).join('');
+    cols.push(`<div class="bk-col ${pairs ? 'has-next' : 'to-champ'} ${hasPrev ? 'has-prev' : ''}"><h3>${esc(r.name === 'Final' ? 'Grand final' : r.name)}</h3><div class="bk-body">${body}</div></div>`);
+  });
+  cols.push(`<div class="bk-col has-prev champ-col"><h3>Champion</h3><div class="bk-body"><div class="bk-slot">
+    <div class="champ ${champId ? '' : 'tbd'}"><span>${champId ? 'Champion' : 'Winner of the Grand final'}</span><b>${champId ? esc(C.tname(S, champId)) : 'TBD'}</b></div></div></div></div>`);
+  const lcols = rs.filter(r => C.isLosersRound(r.name)).map(r => `<div class="bk-col flat"><h3>${esc(r.name)}</h3><div class="bk-body">${r.matches.map(m => matchCard(S, m, nextId)).join('')}</div></div>`);
+  const rows = win[0]?.matches.length || 1;
+  setHTML(el, `<p class="bracket-hint">Scroll sideways to see every round →</p>
+    <h3 class="sub-h">Winners bracket</h3>
+    <div class="bracket-scroll" tabindex="0" role="region" aria-label="Winners bracket, scrolls horizontally">
+      <div class="bk" style="--rows:${rows}">${cols.join('')}</div>
+    </div>
+    <h3 class="sub-h">Losers bracket</h3>
+    <p class="bracket-note">One loss drops a team here, and a second loss knocks it out. The losers-bracket winner meets the winners-bracket winner in the grand final.</p>
+    <div class="bracket-scroll" tabindex="0" role="region" aria-label="Losers bracket, scrolls horizontally">
+      <div class="bk bk-flat">${lcols.join('')}</div>
+    </div>`);
+}
+
 /* ---------- RESULTS ---------- */
 function fates(S) {
   // One row per team: finishing place if decided, otherwise how far they got.
@@ -335,6 +366,12 @@ function fates(S) {
     if (S.bracket) ms = S.bracket.matches.filter(m => m.status === 'done' && m.winner != null && C.entrants(S, m).includes(id));
     const w = ms.filter(m => C.entrants(S, m)[m.winner] === id).length, l = ms.length - w;
     if (i >= 0) { rank = i; fate = i === 0 ? 'Champion' : i < 4 ? ['Runner-up', '3rd place', '4th place'][i - 1] : ord(i + 1); }
+    else if (C.isDouble(S) && seed != null) {
+      const losses = ms.filter(m => C.entrants(S, m)[1 - m.winner] === id), out2 = losses[1];
+      if (out2) { const k = C.playOrder(S).indexOf(out2); rank = 1000 - k; fate = `Out in ${out2.round.toLowerCase()}`; }
+      else if (losses.length) { rank = 100; fate = 'Losers bracket · one more loss and out'; }
+      else { rank = 10; fate = 'Unbeaten'; }
+    }
     else if (!S.bracket || seed == null) {
       const s = C.qualiStatus(S, id);
       rank = 9000; fate = S.bracket ? (s === 'advances' ? 'Not seeded' : 'Did not qualify · ' + STATUS[s][1]) : STATUS[s][1];
@@ -356,8 +393,10 @@ function renderResults(S) {
     setHTML(pod, empty('No results yet', 'Places 1 to 4 get extra credit: 50, 30, 20 and 10 points.'));
   } else {
     const order = C.standings(S), n = Math.min(4, S.bracket.seeds.length), hasThird = !!C.match(S, 'THIRD');
-    sub.textContent = order.length ? (order.length >= n ? 'Final results' : 'Racing still in progress') : '';
-    const where = i => i < 2 ? 'Decided in the Final' : hasThird ? 'Decided in the 3rd place match' : 'Decided in the play-in';
+    const known = order.filter(Boolean).length;
+    sub.textContent = known ? (known >= n ? 'Final results' : 'Racing still in progress') : '';
+    const where = i => C.isDouble(S) ? ['Decided in the Grand final', 'Decided in the Grand final', 'Decided in the losers final', 'Decided in losers round 3'][i]
+      : i < 2 ? 'Decided in the Final' : hasThird ? 'Decided in the 3rd place match' : 'Decided in the play-in';
     setHTML(pod, `<div class="podium">${Array.from({ length: n }, (_, i) => {
       const id = order[i];
       return `<div class="pod p${i + 1} ${id ? '' : 'undecided'}">

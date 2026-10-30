@@ -219,7 +219,7 @@ function upNext(S, title) {
 }
 function noLive(S) {
   const champ = C.standings(S)[0];
-  const ready = S.bracket.matches.filter(m => m.status === 'pending' && C.entrants(S, m).every(Boolean));
+  const ready = C.playOrder(S).filter(m => m.status === 'pending' && C.entrants(S, m).every(Boolean));
   return `<div class="empty big-empty"><h2>Nothing on track</h2><p>${champ ? `Bracket complete. Champion: <b>${esc(C.tname(S, champ))}</b>.` : 'Pick the next race to start.'}</p></div>
   ${upNext(S, 'Up next')}
   ${ready.length > 1 ? `<section class="panel"><h3>Other races ready</h3><div class="stack">${ready.slice(1).map(m => { const e = C.entrants(S, m); return `<button type="button" class="btn lg left" data-act="track" data-mid="${m.id}" data-k="track-${m.id}"><b>${esc(m.label)}</b>&nbsp;· ${esc(C.tname(S, e[0]))} vs ${esc(C.tname(S, e[1]))}</button>`; }).join('')}</div></section>` : ''}`;
@@ -384,11 +384,14 @@ function vBracket() {
     ${out.length ? `<h3 class="sub">Not advancing</h3><ul class="outlist">${out.map(id => `<li><span class="nm">${esc(C.tname(S, id))}</span>${statusPill(C.qualiStatus(S, id))}<span class="small muted">${esc(reason[C.qualiStatus(S, id)] || pendWhy(id))}</span></li>`).join('')}</ul>` : ''}</section>`;
   const actions = !b
     ? `<section class="panel"><button type="button" class="btn pri xl" data-act="build" data-k="build" ${seeds.length < 2 ? 'disabled' : ''}>Build bracket from qualifying · ${seeds.length} teams</button>${seeds.length < 2 ? '<p class="small muted">At least 2 teams must advance.</p>' : ''}</section>`
-    : `<section class="panel"><p class="small">${b.seeds.length} teams seeded · ${b.x}-team bracket${b.x < b.seeds.length ? ` with ${b.seeds.length - b.x} play-in${b.seeds.length - b.x > 1 ? 's' : ''}` : ''}${C.match(S, 'THIRD') ? ' · 3rd place match' : ''}</p>
+    : `<section class="panel"><p class="small">${b.seeds.length} teams seeded · ${C.isDouble(S) ? 'double elimination · losers bracket · one grand final' : `${b.x}-team bracket${b.x < b.seeds.length ? ` with ${b.seeds.length - b.x} play-in${b.seeds.length - b.x > 1 ? 's' : ''}` : ''}${C.match(S, 'THIRD') ? ' · 3rd place match' : ''}`}</p>
       ${changed ? '<p class="warn" role="note"><b>⚠ Qualifying changed since the bracket was built.</b> Rebuild to re-seed. Rebuilding wipes all race results.</p>' : ''}
       <div class="row">${cbtn({ key: 'rebuild', label: 'Rebuild from qualifying', confirm: anyRes ? 'Tap again: wipes all race results' : 'Tap again to rebuild', act: 'build', cls: 'btn' + (changed ? ' pri' : '') })}
       ${cbtn({ key: 'clear', label: 'Clear bracket', confirm: anyRes ? 'Tap again: deletes all races' : 'Tap again to clear', act: 'clear', cls: 'btn danger' })}</div></section>`;
   const parts = [['b-head', '<div class="viewhead"><h2>Bracket</h2><p class="small muted">Tap a race to start it.</p></div>']];
+  const dbl = b && (C.isDouble(S) || C.canDouble(b));
+  if (dbl) parts.push(['b-fmt', `<section class="panel stack"><h3>Format</h3>${seg('Bracket format', [['single', 'Single elimination', '✓'], ['double', 'Double elimination', '✓']], b.format || 'single', 'fmt')}
+    <p class="small muted">${C.isDouble(S) ? 'Losers bracket: the play-in losers race for a spot, that team races the quarterfinal 3 loser, and the other three quarterfinal losers join them. Semifinal and winners-final losers drop in later. The losers-bracket winner races the winners-bracket winner in one grand final.' : 'Double elimination gives every team a second chance in a losers bracket.'} Races both formats share (play-ins, quarterfinals, semifinals) keep their results when you switch, and the public board shows whichever format is on.</p></section>`]);
   if (b) parts.push(['b-rounds', `<div class="rounds">${C.rounds(S).map(r => `<section class="round"><h3>${esc(r.name)}</h3>${r.matches.map(m => mcard(S, m)).join('')}</section>`).join('')}</div>`]);
   parts.push(['b-act', actions], ['b-seeds', seedsHtml]);
   return parts;
@@ -474,6 +477,7 @@ const ACT = {
     if (C.liveMatch(S)?.timer.start) throw new Error('Pause or finish the race on track first.');
     return A.buildBracket(S);
   }).then(ok => ok && toast('Bracket built')),
+  fmt: d => run(S => A.setFormat(S, d.v)).then(ok => ok && toast(d.v === 'double' ? 'Double elimination on' : 'Single elimination on')),
   clear: () => run(S => { if (C.liveMatch(S)?.timer.start) throw new Error('Pause or finish the race on track first.'); return A.clearBracket(S); }),
   dellap: d => delLap(d.id, d.eid, +d.v),
   ltstart: d => { const now = C.nowMs(); vib(30); run(S => { mustTeam(S, d.id); return A.startLapTimer(S, d.id, d.eid, now); }); },

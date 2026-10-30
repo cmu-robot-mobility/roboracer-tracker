@@ -102,7 +102,48 @@ export function buildBracket(seeds) {
     if (size === 4) { const semis = matches.filter(m => m.round === 'Semifinal'); matches.push(newMatch('THIRD', '3rd place', '3rd place match', [{ l: semis[0].id }, { l: semis[1].id }])); }
     prev = next; size /= 2; r++;
   }
-  return { seeds: seeds.slice(), x, matches, liveId: null, createdAt: Date.now() };
+  return { format: 'single', seeds: seeds.slice(), x, matches, liveId: null, createdAt: Date.now() };
+}
+export const isDouble = S => S.bracket?.format === 'double';
+/** A double elimination version can be made from an 8-team single bracket with play-ins. */
+export const canDouble = b => !!b && b.x === 8 && b.seeds.length > 8;
+/**
+ * Double elimination built on the single bracket `b`: the play-ins, quarterfinals and semifinals
+ * are the same races (same ids and entrants, so results carry over when switching).
+ * Losers bracket: play-in losers race a ladder (L(P1) v L(P2), winner v L(P3), …); that winner races
+ * the loser of quarterfinal 3 (2 v 7) for the 4th spot beside the other three quarterfinal losers.
+ * Then two rounds against the semifinal losers (crossed over), a round for 4th place, and the
+ * losers final against the winners-final loser for 3rd. The grand final is one race, no reset.
+ */
+export function buildDouble(b) {
+  if (!canDouble(b)) return null;
+  const keep = b.matches.filter(m => m.round === 'Play-in' || m.round === 'Quarterfinal' || m.round === 'Semifinal').map(m => JSON.parse(JSON.stringify(m)));
+  const matches = [...keep], add = (id, round, label, src) => matches.push(newMatch(id, round, label, src));
+  add('WF', 'Winners final', 'Winners final', [{ w: 'R2M1' }, { w: 'R2M2' }]);
+  const plays = keep.filter(m => m.round === 'Play-in');
+  let up = { l: plays[0].id };
+  for (let i = 1; i < plays.length; i++) { add('LQ' + i, 'Losers qualifier', `Losers qualifier ${i}`, [up, { l: plays[i].id }]); up = { w: 'LQ' + i }; }
+  add('LQF', 'Losers qualifier', 'Losers qualifier final', [{ l: 'R1M3' }, up]);
+  add('L1M1', 'Losers round 1', 'Losers round 1 · 1', [{ l: 'R1M2' }, { w: 'LQF' }]);
+  add('L1M2', 'Losers round 1', 'Losers round 1 · 2', [{ l: 'R1M4' }, { l: 'R1M1' }]);
+  add('L2M1', 'Losers round 2', 'Losers round 2 · 1', [{ l: 'R2M2' }, { w: 'L1M1' }]);
+  add('L2M2', 'Losers round 2', 'Losers round 2 · 2', [{ l: 'R2M1' }, { w: 'L1M2' }]);
+  add('L3', 'Losers round 3', 'Losers round 3', [{ w: 'L2M1' }, { w: 'L2M2' }]);
+  add('LF', 'Losers final', 'Losers final', [{ l: 'WF' }, { w: 'L3' }]);
+  add('GF', 'Final', 'Grand final', [{ w: 'WF' }, { w: 'LF' }]);
+  // Running order: losers-bracket races go first whenever they're ready; winners-bracket races
+  // run only when the losers bracket is waiting on them.
+  const lq = matches.filter(m => /^LQ\d/.test(m.id)).map(m => m.id);
+  const order = [...keep.map(m => m.id).filter(id => !id.startsWith('R2')), ...lq, 'LQF', 'L1M1', 'L1M2', 'R2M1', 'R2M2', 'L2M1', 'L2M2', 'L3', 'WF', 'LF', 'GF'];
+  return { format: 'double', seeds: b.seeds.slice(), x: b.x, matches, order, liveId: keep.some(m => m.id === b.liveId) ? b.liveId : null, createdAt: Date.now() };
+}
+/** Copy results of races both brackets share (same id and entrants) from `from` into `to`. */
+function syncShared(from, to) {
+  for (let i = 0; i < to.matches.length; i++) {
+    const f = from.matches.find(m => m.id === to.matches[i].id);
+    if (f && JSON.stringify(f.src) === JSON.stringify(to.matches[i].src)) to.matches[i] = JSON.parse(JSON.stringify(f));
+  }
+  to.liveId = to.matches.some(m => m.id === from.liveId) ? from.liveId : null;
 }
 export const match = (S, id) => S.bracket?.matches.find(m => m.id === id) || null;
 export function resolve(S, src) {
@@ -124,8 +165,14 @@ export function rounds(S) {
   const th = match(S, 'THIRD'); if (th) out.push({ name: '3rd place', matches: [th] });
   return out;
 }
+export const isLosersRound = name => name.startsWith('Losers');
 export const liveMatch = S => S.bracket?.liveId ? match(S, S.bracket.liveId) : null;
-export const nextMatch = S => S.bracket?.matches.find(m => m.status === 'pending' && m.id !== S.bracket.liveId && entrants(S, m).every(Boolean)) || null;
+/** Races in the order they should be run (the bracket's suggested order if it has one). */
+export function playOrder(S) {
+  const ms = S.bracket?.matches || [], o = S.bracket?.order; if (!o) return ms;
+  return ms.slice().sort((a, b) => (o.indexOf(a.id) + 1 || 1e3) - (o.indexOf(b.id) + 1 || 1e3));
+}
+export const nextMatch = S => playOrder(S).find(m => m.status === 'pending' && m.id !== S.bracket.liveId && entrants(S, m).every(Boolean)) || null;
 
 /* ---------- race clock ----------
  * All clock math uses nowMs(): the device clock corrected by the offset store.js measures
@@ -172,6 +219,12 @@ export function standings(S) {
   if (!S.bracket) return [];
   const ms = S.bracket.matches, fin = ms.find(m => m.round === 'Final'), th = match(S, 'THIRD'), out = [];
   if (fin?.winner != null) { const e = entrants(S, fin); out.push(e[fin.winner], e[1 - fin.winner]); }
+  if (isDouble(S)) { // by place, null = not decided yet: 3rd = losers final loser, 4th = losers round 3 loser
+    if (fin?.winner == null) out.push(null, null);
+    for (const id of ['LF', 'L3']) { const m = match(S, id); out.push(m?.winner != null ? entrants(S, m)[1 - m.winner] : null); }
+    while (out.length && !out.at(-1)) out.pop();
+    return out;
+  }
   if (th?.winner != null) { const e = entrants(S, th); out.push(e[th.winner], e[1 - th.winner]); }
   else if (!th && fin?.winner != null) ms.filter(m => m.round === 'Play-in' && m.winner != null).forEach(m => out.push(entrants(S, m)[1 - m.winner]));
   return out.filter(Boolean);
@@ -233,8 +286,18 @@ export const A = {
   },
   restartLap: (S, id, eid, now = nowMs()) => { const e = evalFor(S, id, eid); if (e.timer) e.timer.last = now; return null; },
   stopLapTimer: (S, id, eid) => { const e = evalFor(S, id, eid); e.timer = null; return null; },
-  buildBracket: S => { S.bracket = buildBracket(seedOrder(S)); return S.bracket ? `Bracket set: ${S.bracket.seeds.length} teams seeded from qualifying` : null; },
-  clearBracket: S => { S.bracket = null; return 'Bracket cleared'; },
+  buildBracket: S => { S.bracket = buildBracket(seedOrder(S)); delete S.altBracket; return S.bracket ? `Bracket set: ${S.bracket.seeds.length} teams seeded from qualifying` : null; },
+  clearBracket: S => { S.bracket = null; delete S.altBracket; return 'Bracket cleared'; },
+  /** Switch between single and double elimination. The other format is kept in S.altBracket. */
+  setFormat: (S, f) => {
+    const cur = S.bracket; if (!cur || (cur.format || 'single') === f) return null;
+    if (liveMatch(S)?.timer.start) throw new Error('Pause or finish the race on track first.');
+    let next = S.altBracket?.format === f ? S.altBracket : null;
+    if (!next && f === 'double') { next = buildDouble(cur); if (!next) throw new Error('Double elimination needs an 8-team bracket with play-ins.'); }
+    if (!next) throw new Error('There is no single elimination bracket to switch back to.');
+    cur.format ||= 'single'; syncShared(cur, next); S.altBracket = cur; S.bracket = next;
+    return f === 'double' ? 'Switched to double elimination: every team gets a second chance in the losers bracket' : 'Switched to single elimination';
+  },
   putOnTrack: (S, mid) => {
     const m = match(S, mid), cur = liveMatch(S);
     if (cur && cur.id !== mid && cur.timer.start) throw new Error('Pause or finish the race on track first.');

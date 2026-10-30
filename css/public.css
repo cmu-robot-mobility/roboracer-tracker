@@ -257,6 +257,11 @@ a{color:var(--accent)}
 .champ-col .bk-body{position:relative}
 .third{position:absolute;left:0;right:0;bottom:7px}
 .third h3{font-size:14px;letter-spacing:.14em;margin:0 0 8px;padding-bottom:6px;border-bottom:2px dashed var(--line)}
+/* double elimination: losers bracket columns without connectors */
+#bracket > .sub-h:first-of-type{margin-top:4px}
+.bracket-note{margin:-4px 0 12px;font-size:14px;color:var(--muted);max-width:75ch}
+.bk-flat{min-height:0;gap:24px}
+.bk-col.flat .bk-body{justify-content:center;gap:14px}
 
 .bm{position:relative;z-index:1;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .bm-h{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 10px;font:700 11px/1.3 var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);background:color-mix(in srgb,var(--chip) 55%,transparent);border-bottom:1px solid var(--line)}
